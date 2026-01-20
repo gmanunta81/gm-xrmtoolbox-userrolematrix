@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<changelog project="GM.XrmToolBox.UserRoleMatrix" semver="true">
+
+	<unreleased>
+		<added />
+		<changed />
+		<fixed />
+		<removed />
+	</unreleased>
+
+	<release version="1.0.0" date="2026-01-20">
+		<added>
+			<item>Load users from Dataverse (systemuser)</item>
+			<item>Load direct user roles (systemuserroles)</item>
+			<item>Load roles via Owner Teams (teammembership + teamroles)</item>
+			<item>Grid with User/Email/User BU, Role/Role BU, Team/Team BU, Assignment Type</item>
+			<item>Duplicate detection (same role direct + team) with column "Duplicate"</item>
+			<item>Search box (client-side filtering)</item>
+			<item>Dropdown filters: Business Unit, Team, Assignment Type (All/Direct/Team)</item>
+			<item>Export: CSV</item>
+			<item>Export: Excel (.xlsx)</item>
+		</added>
+	</release>
+
+</changelog>
+
