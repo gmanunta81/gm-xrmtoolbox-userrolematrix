@@ -110,7 +110,7 @@ Each release should:
 ## Project structure
 
 - `GM.XrmToolBox.UserRoleMatrix.sln` (solution)
-- `GM.XrmToolBox.UserRoleMatrix/` (project)
+- `GM.UserRolesMatrix/` (project)
 - `.github/workflows/ci.yml` (CI build workflow)
 
 ---

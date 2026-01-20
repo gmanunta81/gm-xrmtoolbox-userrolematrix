@@ -275,6 +275,7 @@
     <Compile Include="Settings.cs" />
   </ItemGroup>
   <ItemGroup>
+    <None Include=".github\workflows\ci.yml" />
     <None Include="app.config" />
     <None Include="packages.config" />
     <None Include="README.md" />

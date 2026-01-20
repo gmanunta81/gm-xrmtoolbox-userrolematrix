@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup NuGet
+        uses: nuget/setup-nuget@v2
+        with:
+          nuget-version: latest
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore GM.XrmToolBox.UserRoleMatrix.sln
+
+      - name: Build (Release)
+        run: msbuild GM.XrmToolBox.UserRoleMatrix.sln /p:Configuration=Release
+
+      - name: Prepare artifact
+        shell: pwsh
+        run: |
+          $outDir = "GM.UserRolesMatrix\bin\Release"
+          if (!(Test-Path $outDir)) { throw "Build output not found: $outDir" }
+
+          New-Item -ItemType Directory -Force -Path "artifacts\Plugins" | Out-Null
+          Copy-Item -Path "$outDir\*.dll" -Destination "artifacts\Plugins" -Force
+          Copy-Item -Path "$outDir\*.pdb" -Destination "artifacts\Plugins" -Force -ErrorAction SilentlyContinue
+          Copy-Item -Path "$outDir\*.xml" -Destination "artifacts\Plugins" -Force -ErrorAction SilentlyContinue
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: GM.XrmToolBox.UserRoleMatrix-Release
+          path: artifacts/Plugins
