@@ -9,6 +9,7 @@ using System.Data;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Windows.Controls;
 using System.Windows.Forms;
@@ -58,6 +59,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
         public MyPluginControl()
         {
+            DependencyResolver.Register();
             InitializeComponent();
 
             // Grid config
@@ -1833,6 +1835,55 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public int GetHashCode(DeleteOp obj) => obj.Key?.GetHashCode() ?? 0;
         }
     }
+
+    static class DependencyResolver
+    {
+        private static bool _registered;
+
+        public static void Register()
+        {
+            if (_registered) return;
+            _registered = true;
+
+            AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
+        }
+
+        private static Assembly CurrentDomain_AssemblyResolve(object sender, ResolveEventArgs args)
+        {
+            try
+            {
+                // Requested simple name (e.g. ClosedXML)
+                var requestedName = new AssemblyName(args.Name).Name + ".dll";
+
+                // Folder where the plugin dll is located (Plugins\)
+                var pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+                // Dedicated dependency folder under Plugins\
+                var depsDir = Path.Combine(pluginDir, "GM.XrmToolBox.UserRoleMatrix");
+
+                var candidatePath = Path.Combine(depsDir, requestedName);
+
+                if (File.Exists(candidatePath))
+                {
+                    return Assembly.LoadFrom(candidatePath);
+                }
+            }
+            catch
+            {
+                // ignore and let default loader continue
+            }
+
+            return null;
+        }
+    }
+
+
+    // ...
+
+
+
+
+
 }
 
 

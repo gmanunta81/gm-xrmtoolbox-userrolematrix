@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<package>
+  <metadata>
+    <!-- REQUIRED -->
+    <id>GM.XrmToolBox.UserRoleMatrix</id>
+
+    <!-- IMPORTANT: must match assembly version -->
+    <version>1.0.0.0</version>
+
+    <title>User Role Matrix</title>
+    <authors>Giovanni Manunta</authors>
+    <owners>Giovanni Manunta</owners>
+
+    <!-- REQUIRED by validation -->
+    <projectUrl>https://github.com/gmanunta81/gm-xrmtoolbox-userrolematrix</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/gmanunta81/gm-xrmtoolbox-userrolematrix/main/assets/icon.png</iconUrl>
+
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>XrmToolBox plugin to analyze Users and Owner Teams Security Roles (direct + via teams), with filters, duplicates, add/remove role assignments, export.</description>
+    <summary>User and Owner Team role matrix for Dataverse / Dynamics 365.</summary>
+
+    <releaseNotes>
+        1.0.0.0 - Initial release.
+        - Load Users &amp; Roles (Direct + via Owner Teams)
+        - Load Owner Teams Roles
+        - Modernized BU setting status (RecomputeOwnershipAcrossBusinessUnits)
+        - Add User Role / Delete (associate/disassociate)
+        - Filters + Export CSV/Excel + Duplicates
+    </releaseNotes>
+
+    <!-- REQUIRED: include XrmToolBox term -->
+    <tags>XrmToolBox Dataverse Dynamics365 SecurityRoles</tags>
+
+    <!-- REQUIRED: dependency must be XrmToolBox (not XrmToolBoxPackage) -->
+    <dependencies>
+      <dependency id="XrmToolBox" version="1.2026.1.0" />
+    </dependencies>
+  </metadata>
+
+  <files>
+    <!-- IMPORTANT: your tool dll must be under a Plugins folder -->
+    <!-- Choose the TFM folder that matches your target framework: net48 / net472 / net48 etc. -->
+    <file src="GM.UserRolesMatrix\bin\Release\GM.XrmToolBox.UserRoleMatrix.dll" target="lib\net48\Plugins" />
+
+    <!-- Third-party dependencies: put them in a dedicated subfolder to avoid conflicts -->
+    <file src="GM.UserRolesMatrix\bin\Release\ClosedXML.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+    <file src="GM.UserRolesMatrix\bin\Release\DocumentFormat.OpenXml.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="GM.UserRolesMatrix\bin\Release\ClosedXML.Parser.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="GM.UserRolesMatrix\bin\Release\DocumentFormat.OpenXml.Framework.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="GM.UserRolesMatrix\bin\Release\ExcelNumberFormat.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+    <!-- Add any other required dlls from bin\Release if present -->
+    <!-- <file src="GM.UserRolesMatrix\bin\Release\*.dll" target="lib\net462\Plugins\GM.XrmToolBox.UserRoleMatrix" /> -->
+  </files>
+</package>
