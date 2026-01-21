@@ -40,14 +40,14 @@
   <files>
     <!-- IMPORTANT: your tool dll must be under a Plugins folder -->
     <!-- Choose the TFM folder that matches your target framework: net48 / net472 / net48 etc. -->
-    <file src="GM.UserRolesMatrix\bin\Release\GM.XrmToolBox.UserRoleMatrix.dll" target="lib\net48\Plugins" />
+    <file src="bin\Release\GM.XrmToolBox.UserRoleMatrix.dll" target="lib\net48\Plugins" />
 
     <!-- Third-party dependencies: put them in a dedicated subfolder to avoid conflicts -->
-    <file src="GM.UserRolesMatrix\bin\Release\ClosedXML.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
-    <file src="GM.UserRolesMatrix\bin\Release\DocumentFormat.OpenXml.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
-	<file src="GM.UserRolesMatrix\bin\Release\ClosedXML.Parser.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
-	<file src="GM.UserRolesMatrix\bin\Release\DocumentFormat.OpenXml.Framework.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
-	<file src="GM.UserRolesMatrix\bin\Release\ExcelNumberFormat.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+    <file src="bin\Release\ClosedXML.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+    <file src="bin\Release\DocumentFormat.OpenXml.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="bin\Release\ClosedXML.Parser.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="bin\Release\DocumentFormat.OpenXml.Framework.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="bin\Release\ExcelNumberFormat.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
     <!-- Add any other required dlls from bin\Release if present -->
     <!-- <file src="GM.UserRolesMatrix\bin\Release\*.dll" target="lib\net462\Plugins\GM.XrmToolBox.UserRoleMatrix" /> -->
   </files>
