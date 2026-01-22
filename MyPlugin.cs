@@ -10,6 +10,7 @@ using XrmToolBox.Extensibility.Interfaces;
 
 namespace GM.XrmToolBox.UserRoleMatrix
 {
+    
     [Export(typeof(IXrmToolBoxPlugin))]
     [ExportMetadata("Name", "User Roles Matrix")]
     [ExportMetadata("Description", "Lists users and their security roles (direct + via Owner Teams), including Business Unit info, filters, duplicate detection, and export.")]

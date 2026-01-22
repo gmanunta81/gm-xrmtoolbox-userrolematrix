@@ -24,8 +24,8 @@ using System.Runtime.InteropServices;
 [assembly: Guid("b7a9b800-b48f-40dc-9696-08496d972ad4")]
 
 // Version information
-[assembly: AssemblyVersion("2.0.0.0")]
-[assembly: AssemblyFileVersion("2.0.0.0")]
+[assembly: AssemblyVersion("2.0.0.2")]
+[assembly: AssemblyFileVersion("2.0.0.2")]
 [assembly: AssemblyInformationalVersion("1.0.0")]
 
 // Optional extra metadata (requires .NET Framework 4.5+)

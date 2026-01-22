@@ -5,7 +5,7 @@
     <id>GM.XrmToolBox.UserRoleMatrix</id>
 
     <!-- IMPORTANT: must match assembly version -->
-    <version>1.0.0.0</version>
+    <version>2.0.0.2</version>
 
     <title>User Role Matrix</title>
     <authors>Giovanni Manunta</authors>
@@ -20,7 +20,7 @@
     <summary>User and Owner Team role matrix for Dataverse / Dynamics 365.</summary>
 
     <releaseNotes>
-        1.0.0.0 - Initial release.
+        2.0.0.0 - Initial release.
         - Load Users &amp; Roles (Direct + via Owner Teams)
         - Load Owner Teams Roles
         - Modernized BU setting status (RecomputeOwnershipAcrossBusinessUnits)
@@ -48,7 +48,11 @@
 	<file src="bin\Release\ClosedXML.Parser.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
 	<file src="bin\Release\DocumentFormat.OpenXml.Framework.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
 	<file src="bin\Release\ExcelNumberFormat.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
-    <!-- Add any other required dlls from bin\Release if present -->
+	<file src="bin\Release\SixLabors.Fonts.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="bin\Release\SixLabors.ImageSharp.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="bin\Release\RBush.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	<file src="bin\Release\ScintillaNET.dll" target="lib\net48\Plugins\GM.XrmToolBox.UserRoleMatrix" />
+	  <!-- Add any other required dlls from bin\Release if present -->
     <!-- <file src="GM.UserRolesMatrix\bin\Release\*.dll" target="lib\net462\Plugins\GM.XrmToolBox.UserRoleMatrix" /> -->
   </files>
 </package>

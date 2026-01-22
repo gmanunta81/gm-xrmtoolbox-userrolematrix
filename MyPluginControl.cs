@@ -1,4 +1,5 @@
 ﻿using ClosedXML.Excel;
+using DocumentFormat.OpenXml.Spreadsheet;
 using McTools.Xrm.Connection;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
@@ -17,6 +18,7 @@ using System.Xml.Linq;
 using XrmToolBox.Extensibility;
 using Button = System.Windows.Forms.Button;
 using ComboBox = System.Windows.Forms.ComboBox;
+using Image = System.Drawing.Image;
 using Label = System.Windows.Forms.Label;
 using ToolTip = System.Windows.Forms.ToolTip;
 
@@ -31,6 +33,9 @@ namespace GM.XrmToolBox.UserRoleMatrix
         private const string ModeSystemUser = "systemuser";
         private const string ModeTeam = "team";
         private string _currentMode = ModeNone;
+        private const string AboutIconBase64 =
+  "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADf0lEQVR42u2Xa0hTYRjH/2eXc3brzNXUuUJDaxOnrVgXukmEZZkfihYliRRBYWQWRCn1qaB1nUVhsT5UUISaIFnR5UPQfUZmMaNsoEsj03ltc3q2efrQWrNpTmquDz1wvpyH9/3/zvM+z3OeF4iwESN6iizsX1U6kkqEBlBkYVmDJiEsX1tcb/sVhDecOFFcbwsHAGvQJBCwsIEQnPES/xEB1qBJCDxePwnLsvHhFA+KBEF8/BmBv51woZhPkxPpMvwPEHEA3kgOikcgf95ErEujoYmlICY5cDCDaHd48d4+gJxrLXAwg7izOQGZKgkAoMHOINn4AawvpUkugaZ9KsRN+C5zta4HuWUto0dALubCvD0RJdkK8Fwd3cv1m0olsuhNM1NU+cUFW05L7PUN1O19RjB9/YHrVHISWY3Gc/AhbNBK/eIAgPqbD1FdVDJqBExrlNDGCeDsczHZ6brCdp4iFmvO7rfFqKfaHPbuSuNzK9pau+Bl3AAEAMAwjIckSd6uLTkLbpke1SIpXbdr4SQE+kI6glgJD6tTaABARXnZ4/ZuB4P80gMQyb6/lCqjIVVGQ71sfuC6urq6Rqk0SpyRkaHVHL9YGpO4UjdLKYC59s3HKDHFVavVk0NKwpQYCoSvP1qt1s9IzlwAkYy+sn4KWIPG/+xZLB/a3ViWPX2p3AwAhfol03fPFbgAoOTY4QrwKDLkKiCIIZsCsvg4AMgta4FQt/aM3/ngxGWYL1UFrr1cUf2yy+Fy5+XlLVmVFito/tzWW1lZ+QwCWhIywNu2AX8WJyUlKYYQZR0q+F1J9bn63Rde9HAoiuJzOARx5tTJKo9ILgMpFoYM0PrVg2pLhxsA9Hr9/ChPR9dY6vqsuZfr8Q6yTqez/4LJdA+6javG3Ii23rDz31ptdpqmRVWGbYu0E70ukksgTSEYFaC5xw3+zgcdElqa2+0c8EKrXzbmRvTF4cGc8838Amn5jXVZSzWPt0/jCoRCtrd/kGho/eq2PL3/sqam5gO4c2cPuyutkGPv6+t/1An7+DLp0Z6lmUf3XL2Fd3fPobPpEzwDbpASIUQyGtHT4jE7dfqKizagbNtBND55BeUM1XB7JRutgCl7BzqbPkGTnR48E47DNBQ0kPjmw/9/w38EYIRLQ1jNp8kJGpnHKwGDjuBIKhFuiMDs/2euZhG/nEbcvgEhmWjf6ekl5gAAAABJRU5ErkJggg==";
+
 
         // -----------------------
         // DATA
@@ -39,6 +44,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
         private DataView _view;
         private readonly BindingSource _bindingSource = new BindingSource();
         private bool _updatingFilters;
+        private List<string> _allBusinessUnitNames = new List<string>();
+
 
         // Org setting status
         private OrgSettingStatus _orgSettingStatus = OrgSettingStatus.Unknown();
@@ -51,16 +58,19 @@ namespace GM.XrmToolBox.UserRoleMatrix
             "User Business Unit",
             "Assignment Type",
             "Team",
+            "Is Default Team",
             "Team Business Unit",
             "Role",
             "Role Business Unit",
-            "Duplicate"
+            "Duplicated Role in same BU"
         };
 
         public MyPluginControl()
         {
             DependencyResolver.Register();
             InitializeComponent();
+            tsbAbout.Image = ImageFromBase64(AboutIconBase64);
+            tsbAbout.Click += (s, e) => ShowAboutDialog();
 
             // Grid config
             dgvResults.AutoGenerateColumns = true;
@@ -95,6 +105,14 @@ namespace GM.XrmToolBox.UserRoleMatrix
             InitializeStaticFilters();
             UpdateCountLabel(0, 0);
             UpdateActionButtonsEnabledState();
+        }
+        private void ShowAboutDialog()
+        {
+            using (var f = new AboutForm())
+            {
+                f.StartPosition = FormStartPosition.CenterParent;
+                f.ShowDialog(this);
+            }
         }
 
         public override void UpdateConnection(IOrganizationService newService, ConnectionDetail detail, string actionName, object parameter)
@@ -132,6 +150,15 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 _updatingFilters = false;
             }
         }
+        private static Image ImageFromBase64(string base64)
+        {
+            var bytes = Convert.FromBase64String(base64);
+            using (var ms = new MemoryStream(bytes))
+            using (var img = Image.FromStream(ms))
+            {
+                return new Bitmap(img);
+            }
+        }
 
         private void ClearResults()
         {
@@ -161,7 +188,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 : "Unknown";
 
             // Required feature #1: status near record count
-            tslCount.Text = $"Rows: {filtered:n0} / {total:n0} | EOABs: {recomputeText}";
+            tslCount.Text = $"Rows: {filtered:n0} / {total:n0} | EnableOwnershipAccrossBUs: {recomputeText}";
         }
 
         // -----------------------
@@ -293,7 +320,16 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     worker.ReportProgress(0, "Building rows (duplicates)...");
                     var rows = BuildUserRows(users, directRoles, teamRoles);
 
-                    args.Result = rows;
+                    worker.ReportProgress(0, "Retrieving all Business Units...");
+                    var allBus = RetrieveAllBusinessUnitNames(Service);
+
+
+                    args.Result = new LoadResult
+                    {
+                        Rows = rows,
+                        BusinessUnits = allBus
+                    };
+
                 },
                 ProgressChanged = e =>
                 {
@@ -313,8 +349,11 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
                     _currentMode = ModeSystemUser;
 
-                    var rows = (List<MatrixRow>)e.Result;
-                    BindRows(rows);
+                    var result = (LoadResult)e.Result;
+                    // Persist business unit names for filters
+                    _allBusinessUnitNames = result.BusinessUnits ?? new List<string>();
+
+                    BindRows(result.Rows ?? new List<MatrixRow>());
                     PopulateDropdownFiltersFromTable();
                     ApplyAllFilters();
 
@@ -345,7 +384,15 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     worker.ReportProgress(0, "Building rows...");
                     var rows = BuildOwnerTeamRows(teams, teamRoles);
 
-                    args.Result = rows;
+                    worker.ReportProgress(0, "Retrieving all Business Units...");
+                    var allBus = RetrieveAllBusinessUnitNames(Service);
+
+                    args.Result = new LoadResult
+                    {
+                        Rows = rows,
+                        BusinessUnits = allBus
+                    };
+
                 },
                 ProgressChanged = e =>
                 {
@@ -365,8 +412,10 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
                     _currentMode = ModeTeam;
 
-                    var rows = (List<MatrixRow>)e.Result;
-                    BindRows(rows);
+                    var result = (LoadResult)e.Result;
+                    _allBusinessUnitNames = result.BusinessUnits ?? new List<string>();
+
+                    BindRows(result.Rows);
                     PopulateDropdownFiltersFromTable();
                     ApplyAllFilters();
 
@@ -394,6 +443,9 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             // Commit checkbox edits
             dgvResults.EndEdit();
+            // Ensure the in-progress cell edit is committed to the underlying data source
+            dgvResults.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            _bindingSource.EndEdit();
 
             // Gather selected rows (visible)
             var ops = new List<DeleteOp>();
@@ -695,6 +747,9 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
                 BuildUi();
                 LoadInitialData();
+
+              
+
             }
 
             private void BuildUi()
@@ -723,7 +778,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 _btnAdd.Left = 330;
                 _btnAdd.Top = 170;
                 _btnAdd.Width = 90;
-                _btnAdd.Click += (s, e) => AddClicked();
+                _btnAdd.Click += async (s, e) => await AddClickedAsync();
 
                 _btnCancel.Text = "Cancel";
                 _btnCancel.Left = 430;
@@ -792,6 +847,9 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     if (rootItem != null)
                         _cbBusinessUnit.SelectedItem = rootItem;
                 }
+                AttachCloseDropDownOnTyping(_cbUser);
+                AttachCloseDropDownOnTyping(_cbBusinessUnit);
+                AttachCloseDropDownOnTyping(_cbRole);
             }
 
             private async System.Threading.Tasks.Task LoadRolesForSelectedBuAsync()
@@ -820,6 +878,17 @@ namespace GM.XrmToolBox.UserRoleMatrix
                         foreach (var r in roles.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
                             _cbRole.Items.Add(new ComboItem(r.RoleId, r.Name));
 
+                        // If we loaded items, select the first one so the "Loading..." text is removed.
+                        if (_cbRole.Items.Count > 0)
+                        {
+                            _cbRole.SelectedIndex = 0;
+                        }
+                        else
+                        {
+                            _cbRole.SelectedIndex = -1;
+                            _cbRole.Text = string.Empty;
+                        }
+
                         _cbRole.Enabled = true;
                     }));
                 }
@@ -831,15 +900,21 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     {
                         _cbRole.Items.Clear();
                         _cbRole.Enabled = true;
+                        _cbRole.SelectedIndex = -1;
+                        _cbRole.Text = string.Empty;
                     }));
                 }
             }
 
-            private void AddClicked()
+            private async System.Threading.Tasks.Task AddClickedAsync()
             {
                 var userItem = _cbUser.SelectedItem as ComboItem;
                 var buItem = _cbBusinessUnit.SelectedItem as ComboItem;
                 var roleItem = _cbRole.SelectedItem as ComboItem;
+
+                TrySelectByText(_cbUser);
+                TrySelectByText(_cbBusinessUnit);
+                TrySelectByText(_cbRole);
 
                 // Required validation message
                 if (userItem == null || userItem.Id == Guid.Empty ||
@@ -850,26 +925,78 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     return;
                 }
 
-                try
+                var req = new AssociateRequest
                 {
-                    var req = new AssociateRequest
+                    Target = new EntityReference("systemuser", userItem.Id),
+                    Relationship = new Relationship("systemuserroles_association"),
+                    RelatedEntities = new EntityReferenceCollection
                     {
-                        Target = new EntityReference("systemuser", userItem.Id),
-                        Relationship = new Relationship("systemuserroles_association"),
-                        RelatedEntities = new EntityReferenceCollection
-                        {
-                            new EntityReference("role", roleItem.Id)
-                        }
-                    };
+                        new EntityReference("role", roleItem.Id)
+                    }
+                };
 
-                    _service.Execute(req);
-
-                    DialogResult = DialogResult.OK;
-                    Close();
-                }
-                catch (Exception ex)
+                // Show a small modal wait dialog while the operation completes.
+                using (var wait = new Form()
                 {
-                    MessageBox.Show(ex.Message, "Add User Role", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    StartPosition = FormStartPosition.CenterParent,
+                    FormBorderStyle = FormBorderStyle.FixedDialog,
+                    ControlBox = false,
+                    Width = 300,
+                    Height = 100
+                })
+                {
+                    var lbl = new Label { Text = "Please wait...", Left = 16, Top = 16, Width = 260 };
+                    var pb = new System.Windows.Forms.ProgressBar { Style = ProgressBarStyle.Marquee, Left = 16, Top = 40, Width = 260, Height = 16 };
+                    wait.Controls.Add(lbl);
+                    wait.Controls.Add(pb);
+
+                    Exception exception = null;
+
+                    // Run the associate request on a background thread and close the wait dialog when done
+                    var background = System.Threading.Tasks.Task.Run(() =>
+                    {
+                        try
+                        {
+                            _service.Execute(req);
+                        }
+                        catch (Exception ex)
+                        {
+                            exception = ex;
+                        }
+
+                        try
+                        {
+                            if (!wait.IsDisposed)
+                                wait.Invoke(new Action(() => wait.Close()));
+                        }
+                        catch
+                        {
+                            // ignore invoke/close errors
+                        }
+                    });
+
+                    // Show modal dialog; it will be closed by the background task via Invoke
+                    try
+                    {
+                        wait.ShowDialog(this);
+                    }
+                    catch
+                    {
+                        // ignore show dialog errors
+                    }
+
+                    // Ensure background finished and exception is observed
+                    try { await background; } catch { }
+
+                    if (exception == null)
+                    {
+                        DialogResult = DialogResult.OK;
+                        Close();
+                    }
+                    else
+                    {
+                        MessageBox.Show(exception.Message, "Add User Role", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
                 }
             }
 
@@ -886,7 +1013,93 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
                 public override string ToString() => Text;
             }
+
+            private static void AttachCloseDropDownOnTyping(ComboBox cb)
+            {
+                cb.TextUpdate += (s, e) =>
+                {
+                    if (cb.DroppedDown)
+                    {
+                        cb.DroppedDown = false;
+                        cb.SelectionStart = cb.Text.Length;
+                        cb.SelectionLength = 0;
+                    }
+                };
+            }
+
+            private static void TrySelectByText(ComboBox cb)
+            {
+                if (cb.SelectedItem != null) return;
+
+                var text = (cb.Text ?? "").Trim();
+                if (text.Length == 0) return;
+
+                for (int i = 0; i < cb.Items.Count; i++)
+                {
+                    var itemText = cb.GetItemText(cb.Items[i]);
+                    if (string.Equals(itemText?.Trim(), text, StringComparison.OrdinalIgnoreCase))
+                    {
+                        cb.SelectedIndex = i;
+                        return;
+                    }
+                }
+            }
+
+
         }
+
+        private sealed class AboutForm : Form
+        {
+            public AboutForm()
+            {
+                Text = "About - User Roles Matrix";
+                FormBorderStyle = FormBorderStyle.FixedDialog;
+                MaximizeBox = false;
+                MinimizeBox = false;
+                Width = 520;
+                Height = 220;
+
+                var lblName = new Label { Left = 16, Top = 20, Width = 470, Text = "Giovanni Manunta" };
+                var linkEmail = new LinkLabel { Left = 16, Top = 50, Width = 470, Text = "gmanunta@gmail.com" };
+                var linkLinkedIn = new LinkLabel { Left = 16, Top = 80, Width = 470, Text = "LinkedIn profile" };
+                var linkGitHub = new LinkLabel { Left = 16, Top = 110, Width = 470, Text = "GitHub profile" };
+
+                var btnOk = new Button { Text = "OK", Left = 400, Top = 140, Width = 80, DialogResult = DialogResult.OK };
+                AcceptButton = btnOk;
+
+                linkEmail.LinkClicked += (s, e) => OpenUrl("mailto:gmanunta@gmail.com");
+                linkLinkedIn.LinkClicked += (s, e) => OpenUrl("https://www.linkedin.com/in/giovanni-manunta-3555868/");
+                linkGitHub.LinkClicked += (s, e) => OpenUrl("https://github.com/gmanunta81");
+
+                Controls.Add(lblName);
+                Controls.Add(linkEmail);
+                Controls.Add(linkLinkedIn);
+                Controls.Add(linkGitHub);
+                Controls.Add(btnOk);
+            }
+
+            private static void OpenUrl(string url)
+            {
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url)
+                    {
+                        UseShellExecute = true
+                    });
+                }
+                catch
+                {
+                    // optional: ignore
+                }
+            }
+        }
+
+        private sealed class LoadResult
+        {
+            public List<MatrixRow> Rows { get; set; }
+            public List<string> BusinessUnits { get; set; }
+        }
+
 
         // -----------------------
         // Table binding
@@ -913,6 +1126,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
                 dr["Team"] = r.TeamName ?? "";
                 dr["Team Business Unit"] = r.TeamBusinessUnit ?? "";
+                dr["Is Default Team"] = r.IsDefaultTeam ?? "";
 
                 dr["Role"] = r.RoleName ?? "";
                 dr["Role Business Unit"] = r.RoleBusinessUnit ?? "";
@@ -947,6 +1161,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             dt.Columns.Add("User Business Unit", typeof(string));
             dt.Columns.Add("Assignment Type", typeof(string)); // Direct / Team / None
             dt.Columns.Add("Team", typeof(string));
+            dt.Columns.Add("Is Default Team", typeof(string));
             dt.Columns.Add("Team Business Unit", typeof(string));
             dt.Columns.Add("Role", typeof(string));
             dt.Columns.Add("Role Business Unit", typeof(string));
@@ -999,14 +1214,14 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 return;
 
             var normalBack = dgvResults.RowsDefaultCellStyle.BackColor;
-            if (normalBack == Color.Empty)
+            if (normalBack == System.Drawing.Color.Empty)
                 normalBack = SystemColors.Window;
 
             foreach (DataGridViewRow row in dgvResults.Rows)
             {
                 var value = row.Cells["Duplicate"]?.Value;
                 var isDup = value is bool b && b;
-                row.DefaultCellStyle.BackColor = isDup ? Color.LightYellow : normalBack;
+                row.DefaultCellStyle.BackColor = isDup ? System.Drawing.Color.LightYellow : normalBack;
             }
         }
 
@@ -1022,12 +1237,12 @@ namespace GM.XrmToolBox.UserRoleMatrix
             {
                 string buColumn = (_currentMode == ModeTeam) ? "Team Business Unit" : "User Business Unit";
 
-                var businessUnits = _table.AsEnumerable()
-                    .Select(r => r.Field<string>(buColumn))
-                    .Where(s => !string.IsNullOrWhiteSpace(s))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
+                var businessUnits = (_allBusinessUnitNames ?? new List<string>())
+                 .Where(s => !string.IsNullOrWhiteSpace(s))
+                 .Distinct(StringComparer.OrdinalIgnoreCase)
+                 .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                 .ToList();
+
 
                 var teams = _table.AsEnumerable()
                     .Select(r => r.Field<string>("Team"))
@@ -1086,6 +1301,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     $" OR [Team] LIKE '%{s}%'" +
                     $" OR [Team Business Unit] LIKE '%{s}%'" +
                     $" OR [Role] LIKE '%{s}%'" +
+                    $" OR [Is Default Team] LIKE '%{s}%'" +
                     $" OR [Role Business Unit] LIKE '%{s}%'" +
                     $" OR [Assignment Type] LIKE '%{s}%'";
                 filters.Add("(" + searchClause + ")");
@@ -1310,7 +1526,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             var teamLink = qe.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
             teamLink.EntityAlias = "team";
-            teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid");
+            teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid", "isdefault");
             teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner team
 
             var teamBuLink = teamLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
@@ -1358,7 +1574,9 @@ namespace GM.XrmToolBox.UserRoleMatrix
                         TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
                         RoleId = roleId,
                         RoleName = GetAliasedString(e, "role", "name"),
-                        RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name")
+                        RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                        IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false,
+
                     });
                 }
             }
@@ -1472,6 +1690,24 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             return list;
         }
+        private static List<string> RetrieveAllBusinessUnitNames(IOrganizationService svc)
+        {
+            var qe = new QueryExpression("businessunit")
+            {
+                ColumnSet = new ColumnSet("name"),
+                NoLock = true
+            };
+            qe.Orders.Add(new OrderExpression("name", OrderType.Ascending));
+
+            var ec = RetrieveAll(svc, qe);
+
+            return ec.Entities
+                .Select(e => e.GetAttributeValue<string>("name"))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
 
         private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService svc, Guid businessUnitId)
         {
@@ -1535,6 +1771,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                             UserBusinessUnit = u.BusinessUnitName,
 
                             AssignmentType = "Direct",
+                            IsDefaultTeam = "",
 
                             TeamName = "",
                             TeamBusinessUnit = "",
@@ -1565,6 +1802,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                             UserBusinessUnit = u.BusinessUnitName,
 
                             AssignmentType = "Team",
+                            IsDefaultTeam = t.IsDefaultTeam ? "Yes" : "No",
 
                             TeamName = t.TeamName,
                             TeamBusinessUnit = t.TeamBusinessUnitName,
@@ -1764,6 +2002,17 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             return Guid.Empty;
         }
+        private static bool? GetAliasedBoolean(Entity e, string alias, string attribute)
+        {
+            var key = $"{alias}.{attribute}";
+            if (!e.Attributes.TryGetValue(key, out var obj) || obj == null)
+                return null;
+
+            if (obj is AliasedValue av)
+                obj = av.Value;
+
+            return obj is bool b ? b : (bool?)null;
+        }
 
         // -----------------------
         // Models
@@ -1787,6 +2036,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public string RoleBusinessUnit { get; set; }
 
             public bool Duplicate { get; set; }
+            public string IsDefaultTeam { get; set; }
+
         }
 
         private sealed class UserInfo
@@ -1827,6 +2078,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public Guid RoleId { get; set; }
             public string RoleName { get; set; }
             public string RoleBusinessUnitName { get; set; }
+            public bool IsDefaultTeam { get; set; }
+
         }
 
         private sealed class DeleteOpComparer : IEqualityComparer<DeleteOp>
@@ -1876,879 +2129,10 @@ namespace GM.XrmToolBox.UserRoleMatrix
             return null;
         }
     }
-
-
     // ...
-
-
-
-
-
 }
 
 
 
-//using ClosedXML.Excel;
-//using McTools.Xrm.Connection;
-//using Microsoft.Xrm.Sdk;
-//using Microsoft.Xrm.Sdk.Query;
-//using System;
-//using System.Collections.Generic;
-//using System.Data;
-//using System.Drawing;
-//using System.IO;
-//using System.Linq;
-//using System.Text;
-//using System.Windows.Controls;
-//using System.Windows.Forms;
-//using XrmToolBox.Extensibility;
 
-//namespace GM.XrmToolBox.UserRoleMatrix
-//{
-//    public partial class MyPluginControl : PluginControlBase
-//    {
-//        private DataTable _table;
-//        private DataView _view;
-//        private readonly BindingSource _bindingSource = new BindingSource();
-//        private bool _updatingFilters;
 
-//        // Column list (export + filters)
-//        private static readonly string[] ExportColumns = new[]
-//        {
-//            "User",
-//            "Email",
-//            "User Business Unit",
-//            "Assignment Type",
-//            "Team",
-//            "Team Business Unit",
-//            "Role",
-//            "Role Business Unit",
-//            "Duplicate"
-//        };
-
-//        public MyPluginControl()
-//        {
-//            InitializeComponent();
-
-//            dgvResults.AutoGenerateColumns = true;
-//            dgvResults.ReadOnly = true;
-//            dgvResults.AllowUserToAddRows = false;
-//            dgvResults.AllowUserToDeleteRows = false;
-//            dgvResults.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-//            dgvResults.MultiSelect = false;
-//            dgvResults.DataSource = _bindingSource;
-
-//            // Events
-//            tsbLoad.Click += (s, e) => ExecuteMethod(LoadUsersAndRoles);
-
-//            tsmiExportCsv.Click += (s, e) => ExportCsv();
-//            tsmiExportExcel.Click += (s, e) => ExportExcel();
-
-//            tstSearch.TextChanged += (s, e) => ApplyAllFilters();
-
-//            tscBusinessUnit.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
-//            tscTeam.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
-//            tscAssignment.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
-
-//            dgvResults.DataBindingComplete += (s, e) =>
-//            {
-//                HideTechnicalColumns();
-//                ApplyDuplicateRowHighlight();
-//            };
-
-//            InitializeStaticFilters();
-//        }
-
-//        public override void UpdateConnection(IOrganizationService newService, ConnectionDetail detail, string actionName, object parameter)
-//        {
-//            base.UpdateConnection(newService, detail, actionName, parameter);
-//            ClearResults();
-//        }
-
-//        private void ClearResults()
-//        {
-//            _table = null;
-//            _view = null;
-//            _bindingSource.DataSource = null;
-
-//            _updatingFilters = true;
-//            try
-//            {
-//                tscBusinessUnit.Items.Clear();
-//                tscTeam.Items.Clear();
-//                InitializeStaticFilters();
-//            }
-//            finally
-//            {
-//                _updatingFilters = false;
-//            }
-
-//            tslCount.Text = "Rows: 0";
-//        }
-
-//        private void InitializeStaticFilters()
-//        {
-//            _updatingFilters = true;
-//            try
-//            {
-//                // Assignment
-//                tscAssignment.Items.Clear();
-//                tscAssignment.Items.Add("All");
-//                tscAssignment.Items.Add("Direct");
-//                tscAssignment.Items.Add("Team");
-//                tscAssignment.SelectedIndex = 0;
-
-//                // BU
-//                tscBusinessUnit.Items.Clear();
-//                tscBusinessUnit.Items.Add("All");
-//                tscBusinessUnit.SelectedIndex = 0;
-
-//                // Team
-//                tscTeam.Items.Clear();
-//                tscTeam.Items.Add("All");
-//                tscTeam.SelectedIndex = 0;
-//            }
-//            finally
-//            {
-//                _updatingFilters = false;
-//            }
-//        }
-
-//        private void LoadUsersAndRoles()
-//        {
-//            tsbLoad.Enabled = false;
-
-//            WorkAsync(new WorkAsyncInfo
-//            {
-//                Message = "Loading users and roles...",
-//                MessageWidth = 360,
-//                MessageHeight = 150,
-
-//                Work = (worker, args) =>
-//                {
-//                    worker.ReportProgress(0, "Retrieving users...");
-//                    var users = RetrieveAllUsers(Service);
-
-//                    worker.ReportProgress(0, "Retrieving direct user roles...");
-//                    var directRoles = RetrieveDirectUserRoles(Service);
-
-//                    worker.ReportProgress(0, "Retrieving roles via Owner Teams...");
-//                    var teamRoles = RetrieveTeamUserRoles(Service);
-
-//                    worker.ReportProgress(0, "Building result rows (with duplicate detection)...");
-//                    var rows = BuildRows(users, directRoles, teamRoles);
-
-//                    args.Result = rows;
-//                },
-
-//                ProgressChanged = e =>
-//                {
-//                    if (e.UserState != null)
-//                        SetWorkingMessage(e.UserState.ToString());
-//                },
-
-//                PostWorkCallBack = e =>
-//                {
-//                    tsbLoad.Enabled = true;
-
-//                    if (e.Error != null)
-//                    {
-//                        ShowErrorDialog(e.Error);
-//                        return;
-//                    }
-
-//                    var rows = (List<UserRoleRow>)e.Result;
-
-//                    BindRows(rows);
-//                    PopulateDropdownFiltersFromTable();
-
-//                    ApplyAllFilters();
-//                }
-//            });
-//        }
-
-//        private void BindRows(List<UserRoleRow> rows)
-//        {
-//            _table = CreateSchema();
-
-//            foreach (var r in rows)
-//            {
-//                var dr = _table.NewRow();
-
-//                // Technical columns
-//                dr["UserId"] = r.UserId;
-//                dr["RoleId"] = r.RoleId;
-//                dr["TeamId"] = r.TeamId;
-
-//                // Display columns
-//                dr["User"] = r.UserFullName ?? "";
-//                dr["Email"] = r.UserEmail ?? "";
-//                dr["User Business Unit"] = r.UserBusinessUnit ?? "";
-//                dr["Assignment Type"] = r.AssignmentType ?? "";
-//                dr["Team"] = r.TeamName ?? "";
-//                dr["Team Business Unit"] = r.TeamBusinessUnit ?? "";
-//                dr["Role"] = r.RoleName ?? "";
-//                dr["Role Business Unit"] = r.RoleBusinessUnit ?? "";
-//                dr["Duplicate"] = r.Duplicate;
-
-//                _table.Rows.Add(dr);
-//            }
-
-//            _view = new DataView(_table);
-//            _bindingSource.DataSource = _view;
-
-//            HideTechnicalColumns();
-//            ApplyDuplicateRowHighlight();
-//        }
-
-//        private static DataTable CreateSchema()
-//        {
-//            var dt = new DataTable("UserRoles");
-
-//            // Technical columns (hidden in grid)
-//            dt.Columns.Add("UserId", typeof(Guid));
-//            dt.Columns.Add("RoleId", typeof(Guid));
-//            dt.Columns.Add("TeamId", typeof(Guid));
-
-//            // Display columns (English only)
-//            dt.Columns.Add("User", typeof(string));
-//            dt.Columns.Add("Email", typeof(string));
-//            dt.Columns.Add("User Business Unit", typeof(string));
-//            dt.Columns.Add("Assignment Type", typeof(string)); // Direct / Team / None
-//            dt.Columns.Add("Team", typeof(string));
-//            dt.Columns.Add("Team Business Unit", typeof(string));
-//            dt.Columns.Add("Role", typeof(string));
-//            dt.Columns.Add("Role Business Unit", typeof(string));
-//            dt.Columns.Add("Duplicate", typeof(bool));
-
-//            return dt;
-//        }
-
-//        private void HideTechnicalColumns()
-//        {
-//            if (dgvResults.Columns["UserId"] != null) dgvResults.Columns["UserId"].Visible = false;
-//            if (dgvResults.Columns["RoleId"] != null) dgvResults.Columns["RoleId"].Visible = false;
-//            if (dgvResults.Columns["TeamId"] != null) dgvResults.Columns["TeamId"].Visible = false;
-//        }
-
-//        private void ApplyDuplicateRowHighlight()
-//        {
-//            if (dgvResults.Rows.Count == 0) return;
-//            if (dgvResults.Columns["Duplicate"] == null) return;
-
-//            // Choose a "normal" background fallback
-//            var normalBack = dgvResults.RowsDefaultCellStyle.BackColor;
-//            if (normalBack == Color.Empty)
-//                normalBack = SystemColors.Window;
-
-//            foreach (DataGridViewRow row in dgvResults.Rows)
-//            {
-//                var value = row.Cells["Duplicate"].Value;
-//                var isDup = value is bool b && b;
-
-//                row.DefaultCellStyle.BackColor = isDup ? Color.LightYellow : normalBack;
-//            }
-//        }
-
-//        private void PopulateDropdownFiltersFromTable()
-//        {
-//            if (_table == null) return;
-
-//            _updatingFilters = true;
-//            try
-//            {
-//                var businessUnits = _table.AsEnumerable()
-//                    .Select(r => r.Field<string>("User Business Unit"))
-//                    .Where(s => !string.IsNullOrWhiteSpace(s))
-//                    .Distinct(StringComparer.OrdinalIgnoreCase)
-//                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-//                    .ToList();
-
-//                var teams = _table.AsEnumerable()
-//                    .Select(r => r.Field<string>("Team"))
-//                    .Where(s => !string.IsNullOrWhiteSpace(s))
-//                    .Distinct(StringComparer.OrdinalIgnoreCase)
-//                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-//                    .ToList();
-
-//                tscBusinessUnit.Items.Clear();
-//                tscBusinessUnit.Items.Add("All");
-//                foreach (var bu in businessUnits) tscBusinessUnit.Items.Add(bu);
-//                tscBusinessUnit.SelectedIndex = 0;
-
-//                tscTeam.Items.Clear();
-//                tscTeam.Items.Add("All");
-//                foreach (var t in teams) tscTeam.Items.Add(t);
-//                tscTeam.SelectedIndex = 0;
-//            }
-//            finally
-//            {
-//                _updatingFilters = false;
-//            }
-//        }
-
-//        private void ApplyAllFilters()
-//        {
-//            if (_view == null) return;
-
-//            var filters = new List<string>();
-
-//            var bu = (tscBusinessUnit.SelectedItem?.ToString() ?? "All").Trim();
-//            if (!string.Equals(bu, "All", StringComparison.OrdinalIgnoreCase))
-//                filters.Add($"[User Business Unit] = '{EscapeRowFilterValue(bu)}'");
-
-//            var team = (tscTeam.SelectedItem?.ToString() ?? "All").Trim();
-//            if (!string.Equals(team, "All", StringComparison.OrdinalIgnoreCase))
-//                filters.Add($"[Team] = '{EscapeRowFilterValue(team)}'");
-
-//            var assignment = (tscAssignment.SelectedItem?.ToString() ?? "All").Trim();
-//            if (string.Equals(assignment, "Direct", StringComparison.OrdinalIgnoreCase))
-//                filters.Add($"[Assignment Type] = 'Direct'");
-//            else if (string.Equals(assignment, "Team", StringComparison.OrdinalIgnoreCase))
-//                filters.Add($"[Assignment Type] = 'Team'");
-
-//            var search = (tstSearch.Text ?? "").Trim();
-//            if (!string.IsNullOrWhiteSpace(search))
-//            {
-//                var s = EscapeRowFilterValue(search);
-
-//                var searchClause =
-//                    $"[User] LIKE '%{s}%'" +
-//                    $" OR [Email] LIKE '%{s}%'" +
-//                    $" OR [User Business Unit] LIKE '%{s}%'" +
-//                    $" OR [Team] LIKE '%{s}%'" +
-//                    $" OR [Team Business Unit] LIKE '%{s}%'" +
-//                    $" OR [Role] LIKE '%{s}%'" +
-//                    $" OR [Role Business Unit] LIKE '%{s}%'" +
-//                    $" OR [Assignment Type] LIKE '%{s}%'" +
-//                    $" OR Convert([Duplicate], 'System.String') LIKE '%{s}%'";
-
-//                filters.Add("(" + searchClause + ")");
-//            }
-
-//            _view.RowFilter = string.Join(" AND ", filters);
-
-//            tslCount.Text = _table != null
-//                ? $"Rows: {_view.Count:n0} / {_table.Rows.Count:n0}"
-//                : "Rows: 0";
-
-//            ApplyDuplicateRowHighlight();
-//        }
-
-//        private static string EscapeRowFilterValue(string value)
-//        {
-//            return (value ?? "").Replace("'", "''");
-//        }
-
-//        // ==========================
-//        // EXPORT
-//        // ==========================
-
-//        private DataTable GetCurrentViewForExport()
-//        {
-//            if (_view == null) return null;
-
-//            // Export ONLY display columns (same order every time)
-//            return _view.ToTable(false, ExportColumns);
-//        }
-
-//        private void ExportCsv()
-//        {
-//            if (_view == null)
-//            {
-//                MessageBox.Show("No data to export. Please load data first.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
-//                return;
-//            }
-
-//            using (var sfd = new SaveFileDialog
-//            {
-//                Title = "Export to CSV",
-//                Filter = "CSV (*.csv)|*.csv",
-//                FileName = $"UserRoles_{DateTime.Now:yyyyMMdd_HHmmss}.csv"
-//            })
-//            {
-//                if (sfd.ShowDialog() != DialogResult.OK) return;
-
-//                var path = sfd.FileName;
-//                var snapshot = GetCurrentViewForExport();
-
-//                WorkAsync(new WorkAsyncInfo
-//                {
-//                    Message = "Exporting CSV...",
-//                    Work = (w, e) => WriteCsv(path, snapshot),
-//                    PostWorkCallBack = e =>
-//                    {
-//                        if (e.Error != null)
-//                        {
-//                            ShowErrorDialog(e.Error);
-//                            return;
-//                        }
-
-//                        MessageBox.Show("CSV export completed.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
-//                    }
-//                });
-//            }
-//        }
-
-//        private static void WriteCsv(string path, DataTable dt)
-//        {
-//            // UTF-8 with BOM for Excel-friendliness
-//            using (var sw = new StreamWriter(path, false, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true)))
-//            {
-//                // Header
-//                var headers = dt.Columns.Cast<DataColumn>().Select(c => CsvEscape(c.ColumnName));
-//                sw.WriteLine(string.Join(",", headers));
-
-//                // Rows
-//                foreach (DataRow row in dt.Rows)
-//                {
-//                    var fields = dt.Columns.Cast<DataColumn>()
-//                        .Select(c => CsvEscape(row[c]?.ToString() ?? ""));
-//                    sw.WriteLine(string.Join(",", fields));
-//                }
-//            }
-//        }
-
-//        private static string CsvEscape(string value)
-//        {
-//            if (value == null) return "";
-//            var mustQuote = value.Contains(",") || value.Contains("\"") || value.Contains("\r") || value.Contains("\n");
-//            if (!mustQuote) return value;
-
-//            return "\"" + value.Replace("\"", "\"\"") + "\"";
-//        }
-
-//        private void ExportExcel()
-//        {
-//            if (_view == null)
-//            {
-//                MessageBox.Show("No data to export. Please load data first.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
-//                return;
-//            }
-
-//            using (var sfd = new SaveFileDialog
-//            {
-//                Title = "Export to Excel",
-//                Filter = "Excel Workbook (*.xlsx)|*.xlsx",
-//                FileName = $"UserRoles_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx"
-//            })
-//            {
-//                if (sfd.ShowDialog() != DialogResult.OK) return;
-
-//                var path = sfd.FileName;
-//                var snapshot = GetCurrentViewForExport();
-
-//                WorkAsync(new WorkAsyncInfo
-//                {
-//                    Message = "Exporting Excel...",
-//                    Work = (w, e) => WriteExcel(path, snapshot),
-//                    PostWorkCallBack = e =>
-//                    {
-//                        if (e.Error != null)
-//                        {
-//                            ShowErrorDialog(e.Error);
-//                            return;
-//                        }
-
-//                        MessageBox.Show("Excel export completed.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
-//                    }
-//                });
-//            }
-//        }
-
-//        private static void WriteExcel(string path, DataTable dt)
-//        {
-//            using (var wb = new XLWorkbook())
-//            {
-//                var ws = wb.Worksheets.Add("UserRoles");
-//                ws.Cell(1, 1).InsertTable(dt, "UserRolesTable", true);
-//                ws.Columns().AdjustToContents();
-//                wb.SaveAs(path);
-//            }
-//        }
-
-//        // ==========================
-//        // QUERYEXPRESSION RETRIEVE
-//        // ==========================
-
-//        private static Dictionary<Guid, UserInfo> RetrieveAllUsers(IOrganizationService svc)
-//        {
-//            var qe = new QueryExpression("systemuser")
-//            {
-//                ColumnSet = new ColumnSet("systemuserid", "fullname", "internalemailaddress", "isdisabled", "businessunitid"),
-//                NoLock = true
-//            };
-
-//            var buLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-//            buLink.EntityAlias = "bu";
-//            buLink.Columns = new ColumnSet("name");
-
-//            var ec = RetrieveAll(svc, qe);
-
-//            var users = new Dictionary<Guid, UserInfo>();
-//            foreach (var e in ec.Entities)
-//            {
-//                users[e.Id] = new UserInfo
-//                {
-//                    UserId = e.Id,
-//                    FullName = e.GetAttributeValue<string>("fullname"),
-//                    Email = e.GetAttributeValue<string>("internalemailaddress"),
-//                    BusinessUnitName = GetAliasedString(e, "bu", "name"),
-//                    IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false
-//                };
-//            }
-
-//            return users;
-//        }
-
-//        private static Dictionary<Guid, List<RoleInfo>> RetrieveDirectUserRoles(IOrganizationService svc)
-//        {
-//            var qe = new QueryExpression("systemuserroles")
-//            {
-//                ColumnSet = new ColumnSet("systemuserid", "roleid"),
-//                NoLock = true
-//            };
-
-//            var roleLink = qe.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
-//            roleLink.EntityAlias = "role";
-//            roleLink.Columns = new ColumnSet("roleid", "name", "businessunitid");
-
-//            var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-//            roleBuLink.EntityAlias = "rolebu";
-//            roleBuLink.Columns = new ColumnSet("name");
-
-//            var ec = RetrieveAll(svc, qe);
-
-//            var map = new Dictionary<Guid, List<RoleInfo>>();
-//            var dedupe = new Dictionary<Guid, HashSet<Guid>>();
-
-//            foreach (var e in ec.Entities)
-//            {
-//                var userId = GetIdFromAttribute(e, "systemuserid");
-//                var roleId = GetIdFromAttribute(e, "roleid");
-
-//                if (userId == Guid.Empty || roleId == Guid.Empty) continue;
-
-//                if (!map.TryGetValue(userId, out var list))
-//                {
-//                    list = new List<RoleInfo>();
-//                    map[userId] = list;
-//                    dedupe[userId] = new HashSet<Guid>();
-//                }
-
-//                if (dedupe[userId].Add(roleId))
-//                {
-//                    list.Add(new RoleInfo
-//                    {
-//                        RoleId = roleId,
-//                        Name = GetAliasedString(e, "role", "name"),
-//                        BusinessUnitName = GetAliasedString(e, "rolebu", "name")
-//                    });
-//                }
-//            }
-
-//            return map;
-//        }
-
-//        private static Dictionary<Guid, List<TeamRoleInfo>> RetrieveTeamUserRoles(IOrganizationService svc)
-//        {
-//            var qe = new QueryExpression("teammembership")
-//            {
-//                ColumnSet = new ColumnSet("systemuserid", "teamid"),
-//                NoLock = true
-//            };
-
-//            var teamLink = qe.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
-//            teamLink.EntityAlias = "team";
-//            teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid");
-//            teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // 0 = Owner Team
-
-//            var teamBuLink = teamLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-//            teamBuLink.EntityAlias = "teambu";
-//            teamBuLink.Columns = new ColumnSet("name");
-
-//            // Team -> TeamRoles (intersect) -> Role
-//            var teamRolesLink = teamLink.AddLink("teamroles", "teamid", "teamid", JoinOperator.Inner);
-
-//            var roleLink = teamRolesLink.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
-//            roleLink.EntityAlias = "role";
-//            roleLink.Columns = new ColumnSet("roleid", "name", "businessunitid");
-
-//            var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-//            roleBuLink.EntityAlias = "rolebu";
-//            roleBuLink.Columns = new ColumnSet("name");
-
-//            var ec = RetrieveAll(svc, qe);
-
-//            var map = new Dictionary<Guid, List<TeamRoleInfo>>();
-//            var dedupe = new Dictionary<Guid, HashSet<string>>();
-
-//            foreach (var e in ec.Entities)
-//            {
-//                var userId = GetIdFromAttribute(e, "systemuserid");
-//                var teamId = GetIdFromAttribute(e, "teamid");
-//                var roleId = GetAliasedGuid(e, "role", "roleid");
-
-//                if (userId == Guid.Empty || teamId == Guid.Empty || roleId == Guid.Empty) continue;
-
-//                var key = $"{teamId:N}|{roleId:N}";
-
-//                if (!map.TryGetValue(userId, out var list))
-//                {
-//                    list = new List<TeamRoleInfo>();
-//                    map[userId] = list;
-//                    dedupe[userId] = new HashSet<string>();
-//                }
-
-//                if (dedupe[userId].Add(key))
-//                {
-//                    list.Add(new TeamRoleInfo
-//                    {
-//                        TeamId = teamId,
-//                        TeamName = GetAliasedString(e, "team", "name"),
-//                        TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
-//                        RoleId = roleId,
-//                        RoleName = GetAliasedString(e, "role", "name"),
-//                        RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name")
-//                    });
-//                }
-//            }
-
-//            return map;
-//        }
-
-//        private static List<UserRoleRow> BuildRows(
-//            Dictionary<Guid, UserInfo> users,
-//            Dictionary<Guid, List<RoleInfo>> directRoles,
-//            Dictionary<Guid, List<TeamRoleInfo>> teamRoles)
-//        {
-//            // Duplicate definition: (UserId, RoleId) exists both in direct and team assignments
-//            var directPairs = new HashSet<(Guid UserId, Guid RoleId)>();
-//            foreach (var kvp in directRoles)
-//                foreach (var r in kvp.Value)
-//                    directPairs.Add((kvp.Key, r.RoleId));
-
-//            var teamPairs = new HashSet<(Guid UserId, Guid RoleId)>();
-//            foreach (var kvp in teamRoles)
-//                foreach (var r in kvp.Value)
-//                    teamPairs.Add((kvp.Key, r.RoleId));
-
-//            var duplicates = new HashSet<(Guid UserId, Guid RoleId)>(directPairs);
-//            duplicates.IntersectWith(teamPairs);
-
-//            var rows = new List<UserRoleRow>(users.Count * 2);
-
-//            foreach (var u in users.Values.OrderBy(x => x.FullName, StringComparer.OrdinalIgnoreCase))
-//            {
-//                var any = false;
-
-//                if (directRoles.TryGetValue(u.UserId, out var dr))
-//                {
-//                    foreach (var r in dr.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-//                    {
-//                        var isDup = duplicates.Contains((u.UserId, r.RoleId));
-
-//                        rows.Add(new UserRoleRow
-//                        {
-//                            UserId = u.UserId,
-//                            RoleId = r.RoleId,
-//                            TeamId = Guid.Empty,
-
-//                            UserFullName = u.FullName,
-//                            UserEmail = u.Email,
-//                            UserBusinessUnit = u.BusinessUnitName,
-
-//                            AssignmentType = "Direct",
-//                            TeamName = "",
-//                            TeamBusinessUnit = "",
-
-//                            RoleName = r.Name,
-//                            RoleBusinessUnit = r.BusinessUnitName,
-
-//                            Duplicate = isDup
-//                        });
-
-//                        any = true;
-//                    }
-//                }
-
-//                if (teamRoles.TryGetValue(u.UserId, out var tr))
-//                {
-//                    foreach (var t in tr.OrderBy(x => x.TeamName, StringComparer.OrdinalIgnoreCase)
-//                                        .ThenBy(x => x.RoleName, StringComparer.OrdinalIgnoreCase))
-//                    {
-//                        var isDup = duplicates.Contains((u.UserId, t.RoleId));
-
-//                        rows.Add(new UserRoleRow
-//                        {
-//                            UserId = u.UserId,
-//                            RoleId = t.RoleId,
-//                            TeamId = t.TeamId,
-
-//                            UserFullName = u.FullName,
-//                            UserEmail = u.Email,
-//                            UserBusinessUnit = u.BusinessUnitName,
-
-//                            AssignmentType = "Team",
-//                            TeamName = t.TeamName,
-//                            TeamBusinessUnit = t.TeamBusinessUnitName,
-
-//                            RoleName = t.RoleName,
-//                            RoleBusinessUnit = t.RoleBusinessUnitName,
-
-//                            Duplicate = isDup
-//                        });
-
-//                        any = true;
-//                    }
-//                }
-
-//                // Ensure "all users" are present, even if they have no roles
-//                if (!any)
-//                {
-//                    rows.Add(new UserRoleRow
-//                    {
-//                        UserId = u.UserId,
-//                        RoleId = Guid.Empty,
-//                        TeamId = Guid.Empty,
-
-//                        UserFullName = u.FullName,
-//                        UserEmail = u.Email,
-//                        UserBusinessUnit = u.BusinessUnitName,
-
-//                        AssignmentType = "None",
-//                        TeamName = "",
-//                        TeamBusinessUnit = "",
-
-//                        RoleName = "",
-//                        RoleBusinessUnit = "",
-
-//                        Duplicate = false
-//                    });
-//                }
-//            }
-
-//            return rows;
-//        }
-
-//        // ==========================
-//        // PAGING HELPER (QueryExpression)
-//        // ==========================
-//        private static EntityCollection RetrieveAll(IOrganizationService svc, QueryExpression qe, int pageSize = 5000)
-//        {
-//            var result = new EntityCollection();
-
-//            qe.PageInfo = new PagingInfo
-//            {
-//                PageNumber = 1,
-//                Count = pageSize,
-//                ReturnTotalRecordCount = false
-//            };
-
-//            while (true)
-//            {
-//                var ec = svc.RetrieveMultiple(qe);
-//                result.Entities.AddRange(ec.Entities);
-
-//                if (!ec.MoreRecords)
-//                    break;
-
-//                qe.PageInfo.PageNumber++;
-//                qe.PageInfo.PagingCookie = ec.PagingCookie;
-//            }
-
-//            return result;
-//        }
-
-//        // ==========================
-//        // HELPERS (Aliased + Id extraction)
-//        // ==========================
-//        private static string GetAliasedString(Entity e, string alias, string attribute)
-//        {
-//            var key = $"{alias}.{attribute}";
-//            if (!e.Attributes.TryGetValue(key, out var obj) || obj == null)
-//                return null;
-
-//            if (obj is AliasedValue av)
-//                return av.Value?.ToString();
-
-//            return obj.ToString();
-//        }
-
-//        private static Guid GetAliasedGuid(Entity e, string alias, string attribute)
-//        {
-//            var key = $"{alias}.{attribute}";
-//            if (!e.Attributes.TryGetValue(key, out var obj) || obj == null)
-//                return Guid.Empty;
-
-//            if (obj is AliasedValue av)
-//            {
-//                if (av.Value is Guid g) return g;
-//                if (av.Value is EntityReference er) return er.Id;
-//            }
-
-//            return Guid.Empty;
-//        }
-
-//        private static Guid GetIdFromAttribute(Entity e, string attributeLogicalName)
-//        {
-//            if (!e.Attributes.TryGetValue(attributeLogicalName, out var obj) || obj == null)
-//                return Guid.Empty;
-
-//            if (obj is Guid g) return g;
-//            if (obj is EntityReference er) return er.Id;
-
-//            return Guid.Empty;
-//        }
-
-//        // ==========================
-//        // MODELS
-//        // ==========================
-
-//        private sealed class UserInfo
-//        {
-//            public Guid UserId { get; set; }
-//            public string FullName { get; set; }
-//            public string Email { get; set; }
-//            public string BusinessUnitName { get; set; }
-//            public bool IsDisabled { get; set; }
-//        }
-
-//        private sealed class RoleInfo
-//        {
-//            public Guid RoleId { get; set; }
-//            public string Name { get; set; }
-//            public string BusinessUnitName { get; set; }
-//        }
-
-//        private sealed class TeamRoleInfo
-//        {
-//            public Guid TeamId { get; set; }
-//            public string TeamName { get; set; }
-//            public string TeamBusinessUnitName { get; set; }
-//            public Guid RoleId { get; set; }
-//            public string RoleName { get; set; }
-//            public string RoleBusinessUnitName { get; set; }
-//        }
-
-//        private sealed class UserRoleRow
-//        {
-//            public Guid UserId { get; set; }
-//            public Guid RoleId { get; set; }
-//            public Guid TeamId { get; set; }
-
-//            public string UserFullName { get; set; }
-//            public string UserEmail { get; set; }
-//            public string UserBusinessUnit { get; set; }
-
-//            public string AssignmentType { get; set; } // Direct / Team / None
-//            public string TeamName { get; set; }
-//            public string TeamBusinessUnit { get; set; }
-
-//            public string RoleName { get; set; }
-//            public string RoleBusinessUnit { get; set; }
-
-//            public bool Duplicate { get; set; }
-//        }
-//    }
-//}
