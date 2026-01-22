@@ -31,6 +31,9 @@
         private System.Windows.Forms.ToolStripLabel tslSearch;
         private System.Windows.Forms.ToolStripTextBox tstSearch;
 
+        private System.Windows.Forms.ToolStripLabel tslIsDefaultTeam;
+        private System.Windows.Forms.ToolStripComboBox tscIsDefaultTeam;
+
         private System.Windows.Forms.ToolStripLabel tslCount;
 
         private System.Windows.Forms.DataGridView dgvResults;
@@ -65,10 +68,11 @@
             this.toolStripSeparator2 = new System.Windows.Forms.ToolStripSeparator();
             this.tslSearch = new System.Windows.Forms.ToolStripLabel();
             this.tstSearch = new System.Windows.Forms.ToolStripTextBox();
+            this.tslIsDefaultTeam = new System.Windows.Forms.ToolStripLabel();
+            this.tscIsDefaultTeam = new System.Windows.Forms.ToolStripComboBox();
             this.tslCount = new System.Windows.Forms.ToolStripLabel();
-            this.dgvResults = new System.Windows.Forms.DataGridView();
             this.tsbAbout = new System.Windows.Forms.ToolStripButton();
-
+            this.dgvResults = new System.Windows.Forms.DataGridView();
             this.tsMain.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvResults)).BeginInit();
             this.SuspendLayout();
@@ -93,6 +97,8 @@
             this.toolStripSeparator2,
             this.tslSearch,
             this.tstSearch,
+            this.tslIsDefaultTeam,
+            this.tscIsDefaultTeam,
             this.tslCount,
             this.tsbAbout});
             this.tsMain.Location = new System.Drawing.Point(0, 0);
@@ -133,9 +139,8 @@
             // 
             this.tsddExport.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
             this.tsddExport.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
-                this.tsmiExportCsv,
-                this.tsmiExportExcel
-            });
+            this.tsmiExportCsv,
+            this.tsmiExportExcel});
             this.tsddExport.Name = "tsddExport";
             this.tsddExport.Size = new System.Drawing.Size(66, 29);
             this.tsddExport.Text = "Export";
@@ -166,6 +171,7 @@
             // tscBusinessUnit
             // 
             this.tscBusinessUnit.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.tscBusinessUnit.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.tscBusinessUnit.Name = "tscBusinessUnit";
             this.tscBusinessUnit.Size = new System.Drawing.Size(170, 32);
             // 
@@ -178,6 +184,7 @@
             // tscTeam
             // 
             this.tscTeam.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.tscTeam.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.tscTeam.Name = "tscTeam";
             this.tscTeam.Size = new System.Drawing.Size(170, 32);
             // 
@@ -190,6 +197,7 @@
             // tscAssignment
             // 
             this.tscAssignment.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.tscAssignment.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.tscAssignment.Name = "tscAssignment";
             this.tscAssignment.Size = new System.Drawing.Size(95, 28);
             // 
@@ -210,12 +218,34 @@
             this.tstSearch.Name = "tstSearch";
             this.tstSearch.Size = new System.Drawing.Size(220, 27);
             // 
+            // tslIsDefaultTeam
+            // 
+            this.tslIsDefaultTeam.Name = "tslIsDefaultTeam";
+            this.tslIsDefaultTeam.Size = new System.Drawing.Size(120, 20);
+            this.tslIsDefaultTeam.Text = "Is Default Team:";
+            // 
+            // tscIsDefaultTeam
+            // 
+            this.tscIsDefaultTeam.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.tscIsDefaultTeam.Font = new System.Drawing.Font("Segoe UI", 9F);
+            this.tscIsDefaultTeam.Name = "tscIsDefaultTeam";
+            this.tscIsDefaultTeam.Size = new System.Drawing.Size(90, 28);
+            // 
             // tslCount
             // 
             this.tslCount.Alignment = System.Windows.Forms.ToolStripItemAlignment.Right;
             this.tslCount.Name = "tslCount";
             this.tslCount.Size = new System.Drawing.Size(59, 20);
             this.tslCount.Text = "Rows: 0";
+            // 
+            // tsbAbout
+            // 
+            this.tsbAbout.Alignment = System.Windows.Forms.ToolStripItemAlignment.Right;
+            this.tsbAbout.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.tsbAbout.Name = "tsbAbout";
+            this.tsbAbout.Size = new System.Drawing.Size(54, 24);
+            this.tsbAbout.Text = "About";
+            this.tsbAbout.ToolTipText = "About";
             // 
             // dgvResults
             // 
@@ -227,18 +257,6 @@
             this.dgvResults.Size = new System.Drawing.Size(1200, 668);
             this.dgvResults.TabIndex = 1;
             // 
-            // tsbAbout
-            // 
-            this.tsbAbout.Alignment = System.Windows.Forms.ToolStripItemAlignment.Right;
-            this.tsbAbout.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
-            this.tsbAbout.Image = ImageFromBase64(AboutIconBase64);
-            this.tsbAbout.ImageTransparentColor = System.Drawing.Color.Magenta;
-            this.tsbAbout.Name = "tsbAbout";
-            this.tsbAbout.Size = new System.Drawing.Size(29, 28);
-            this.tsbAbout.Text = "About";
-            this.tsbAbout.ToolTipText = "About";
-
-            // 
             // MyPluginControl
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
@@ -249,10 +267,10 @@
             this.Size = new System.Drawing.Size(1200, 700);
             this.tsMain.ResumeLayout(false);
             this.tsMain.PerformLayout();
-
             ((System.ComponentModel.ISupportInitialize)(this.dgvResults)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
+
         }
     }
 }

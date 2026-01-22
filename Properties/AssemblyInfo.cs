@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 // associated with an assembly.
 
 [assembly: AssemblyTitle("GM.XrmToolBox.UserRoleMatrix")]
-[assembly: AssemblyDescription("XrmToolBox plugin by Giovanni Manunta (gmanunta81@gmail.com) - XRM Toolbox Enthusiast")]
+[assembly: AssemblyDescription("XrmToolBox plugin by Giovanni Manunta - XRM Toolbox Enthusiast")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Giovanni Manunta")]
 [assembly: AssemblyProduct("GM.XrmToolBox.UserRoleMatrix")]
@@ -24,11 +24,10 @@ using System.Runtime.InteropServices;
 [assembly: Guid("b7a9b800-b48f-40dc-9696-08496d972ad4")]
 
 // Version information
-[assembly: AssemblyVersion("2.0.0.2")]
-[assembly: AssemblyFileVersion("2.0.0.2")]
+[assembly: AssemblyVersion("2.0.0.3")]
+[assembly: AssemblyFileVersion("2.0.0.3")]
 [assembly: AssemblyInformationalVersion("1.0.0")]
 
 // Optional extra metadata (requires .NET Framework 4.5+)
 [assembly: AssemblyMetadata("Author", "Giovanni Manunta")]
-[assembly: AssemblyMetadata("Email", "gmanunta81@gmail.com")]
 [assembly: AssemblyMetadata("Tagline", "XRM Toolbox Enthusiast")]

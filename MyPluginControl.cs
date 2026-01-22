@@ -95,6 +95,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
             tscBusinessUnit.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
             tscTeam.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
             tscAssignment.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
+            if (tscIsDefaultTeam != null)
+                tscIsDefaultTeam.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
 
             dgvResults.DataBindingComplete += (s, e) =>
             {
@@ -144,6 +146,15 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 tscTeam.Items.Clear();
                 tscTeam.Items.Add("All");
                 tscTeam.SelectedIndex = 0;
+
+                if (tscIsDefaultTeam != null)
+                {
+                    tscIsDefaultTeam.Items.Clear();
+                    tscIsDefaultTeam.Items.Add("All");
+                    tscIsDefaultTeam.Items.Add("Yes");
+                    tscIsDefaultTeam.Items.Add("No");
+                    tscIsDefaultTeam.SelectedIndex = 0;
+                }
             }
             finally
             {
@@ -1060,19 +1071,17 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 Height = 220;
 
                 var lblName = new Label { Left = 16, Top = 20, Width = 470, Text = "Giovanni Manunta" };
-                var linkEmail = new LinkLabel { Left = 16, Top = 50, Width = 470, Text = "gmanunta@gmail.com" };
                 var linkLinkedIn = new LinkLabel { Left = 16, Top = 80, Width = 470, Text = "LinkedIn profile" };
                 var linkGitHub = new LinkLabel { Left = 16, Top = 110, Width = 470, Text = "GitHub profile" };
 
                 var btnOk = new Button { Text = "OK", Left = 400, Top = 140, Width = 80, DialogResult = DialogResult.OK };
                 AcceptButton = btnOk;
 
-                linkEmail.LinkClicked += (s, e) => OpenUrl("mailto:gmanunta@gmail.com");
+                
                 linkLinkedIn.LinkClicked += (s, e) => OpenUrl("https://www.linkedin.com/in/giovanni-manunta-3555868/");
                 linkGitHub.LinkClicked += (s, e) => OpenUrl("https://github.com/gmanunta81");
 
                 Controls.Add(lblName);
-                Controls.Add(linkEmail);
                 Controls.Add(linkLinkedIn);
                 Controls.Add(linkGitHub);
                 Controls.Add(btnOk);
@@ -1131,7 +1140,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 dr["Role"] = r.RoleName ?? "";
                 dr["Role Business Unit"] = r.RoleBusinessUnit ?? "";
 
-                dr["Duplicate"] = r.Duplicate;
+                dr["Duplicated Role via Teams"] = r.Duplicate;
 
                 _table.Rows.Add(dr);
             }
@@ -1165,7 +1174,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             dt.Columns.Add("Team Business Unit", typeof(string));
             dt.Columns.Add("Role", typeof(string));
             dt.Columns.Add("Role Business Unit", typeof(string));
-            dt.Columns.Add("Duplicate", typeof(bool));
+            dt.Columns.Add("Duplicated Role via Teams", typeof(bool));
 
             return dt;
         }
@@ -1210,7 +1219,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
         private void ApplyDuplicateRowHighlight()
         {
-            if (dgvResults.Rows.Count == 0 || dgvResults.Columns["Duplicate"] == null)
+            if (dgvResults.Rows.Count == 0 || dgvResults.Columns["Duplicated Role via Teams"] == null)
                 return;
 
             var normalBack = dgvResults.RowsDefaultCellStyle.BackColor;
@@ -1219,7 +1228,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             foreach (DataGridViewRow row in dgvResults.Rows)
             {
-                var value = row.Cells["Duplicate"]?.Value;
+                var value = row.Cells["Duplicated Role via Teams"]?.Value;
                 var isDup = value is bool b && b;
                 row.DefaultCellStyle.BackColor = isDup ? System.Drawing.Color.LightYellow : normalBack;
             }
@@ -1288,6 +1297,16 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 filters.Add($"[Assignment Type] = 'Direct'");
             else if (string.Equals(assignment, "Team", StringComparison.OrdinalIgnoreCase))
                 filters.Add($"[Assignment Type] = 'Team'");
+
+            // Is Default Team filter (Only applicable when the column exists)
+            if (tscIsDefaultTeam != null)
+            {
+                var isDefault = (tscIsDefaultTeam.SelectedItem?.ToString() ?? "All").Trim();
+                if (string.Equals(isDefault, "Yes", StringComparison.OrdinalIgnoreCase))
+                    filters.Add("[Is Default Team] = 'Yes'");
+                else if (string.Equals(isDefault, "No", StringComparison.OrdinalIgnoreCase))
+                    filters.Add("[Is Default Team] = 'No'");
+            }
 
             var search = (tstSearch.Text ?? "").Trim();
             if (!string.IsNullOrWhiteSpace(search))
@@ -1526,6 +1545,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             var teamLink = qe.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
             teamLink.EntityAlias = "team";
+            // include isdefault so we can surface it in team-role rows
             teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid", "isdefault");
             teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner team
 
@@ -1588,7 +1608,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
         {
             var qe = new QueryExpression("team")
             {
-                ColumnSet = new ColumnSet("teamid", "name", "teamtype", "businessunitid"),
+                // include isdefault so we can surface it in owner-team rows
+                ColumnSet = new ColumnSet("teamid", "name", "teamtype", "businessunitid", "isdefault"),
                 NoLock = true
             };
             qe.Criteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner
@@ -1606,7 +1627,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 {
                     TeamId = e.Id,
                     Name = e.GetAttributeValue<string>("name"),
-                    BusinessUnitName = GetAliasedString(e, "teambu", "name")
+                    BusinessUnitName = GetAliasedString(e, "teambu", "name"),
+                    IsDefaultTeam = e.GetAttributeValue<bool?>("isdefault")
                 };
             }
 
@@ -1874,7 +1896,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     RoleName = tr.RoleName,
                     RoleBusinessUnit = tr.RoleBusinessUnitName,
 
-                    Duplicate = false
+                    Duplicate = false,
+                    IsDefaultTeam = tr.IsDefaultTeam ? "Yes" : "No"
                 });
             }
 
@@ -1882,6 +1905,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
             foreach (var t in teams.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
             {
                 if (teamsWithRoles.Contains(t.TeamId)) continue;
+
+                var isDefaultText = t.IsDefaultTeam.HasValue ? (t.IsDefaultTeam.Value ? "Yes" : "No") : "";
 
                 rows.Add(new MatrixRow
                 {
@@ -1901,7 +1926,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     RoleName = "",
                     RoleBusinessUnit = "",
 
-                    Duplicate = false
+                    Duplicate = false,
+                    IsDefaultTeam = isDefaultText
                 });
             }
 
@@ -2068,6 +2094,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public Guid TeamId { get; set; }
             public string Name { get; set; }
             public string BusinessUnitName { get; set; }
+            public bool? IsDefaultTeam { get; set; }
         }
 
         private sealed class TeamRoleInfo

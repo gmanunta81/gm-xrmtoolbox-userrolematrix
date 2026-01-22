@@ -118,5 +118,4 @@ Each release should:
 ## Author
 
 Giovanni Manunta  
-Email: gmanunta81@gmail.com  
 XRM Toolbox Enthusiast
