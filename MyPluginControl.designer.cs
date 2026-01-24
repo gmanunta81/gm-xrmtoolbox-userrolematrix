@@ -8,6 +8,7 @@
 
         private System.Windows.Forms.ToolStripButton tsbLoadUsersRoles;
         private System.Windows.Forms.ToolStripButton tsbLoadOwnerTeamsRoles;
+        private System.Windows.Forms.ToolStripButton tsbSelectAllRecords;
         private System.Windows.Forms.ToolStripButton tsbAddUserRole;
         private System.Windows.Forms.ToolStripButton tsbDel;
 
@@ -31,14 +32,10 @@
         private System.Windows.Forms.ToolStripLabel tslSearch;
         private System.Windows.Forms.ToolStripTextBox tstSearch;
 
-        private System.Windows.Forms.ToolStripLabel tslIsDefaultTeam;
-        private System.Windows.Forms.ToolStripComboBox tscIsDefaultTeam;
-
+        private System.Windows.Forms.ToolStripButton tsbAbout;
         private System.Windows.Forms.ToolStripLabel tslCount;
 
         private System.Windows.Forms.DataGridView dgvResults;
-        
-        private System.Windows.Forms.ToolStripButton tsbAbout;
 
         protected override void Dispose(bool disposing)
         {
@@ -53,6 +50,7 @@
             this.tsMain = new System.Windows.Forms.ToolStrip();
             this.tsbLoadUsersRoles = new System.Windows.Forms.ToolStripButton();
             this.tsbLoadOwnerTeamsRoles = new System.Windows.Forms.ToolStripButton();
+            this.tsbSelectAllRecords = new System.Windows.Forms.ToolStripButton();
             this.tsbAddUserRole = new System.Windows.Forms.ToolStripButton();
             this.tsbDel = new System.Windows.Forms.ToolStripButton();
             this.tsddExport = new System.Windows.Forms.ToolStripDropDownButton();
@@ -68,10 +66,8 @@
             this.toolStripSeparator2 = new System.Windows.Forms.ToolStripSeparator();
             this.tslSearch = new System.Windows.Forms.ToolStripLabel();
             this.tstSearch = new System.Windows.Forms.ToolStripTextBox();
-            this.tslIsDefaultTeam = new System.Windows.Forms.ToolStripLabel();
-            this.tscIsDefaultTeam = new System.Windows.Forms.ToolStripComboBox();
-            this.tslCount = new System.Windows.Forms.ToolStripLabel();
             this.tsbAbout = new System.Windows.Forms.ToolStripButton();
+            this.tslCount = new System.Windows.Forms.ToolStripLabel();
             this.dgvResults = new System.Windows.Forms.DataGridView();
             this.tsMain.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvResults)).BeginInit();
@@ -84,6 +80,7 @@
             this.tsMain.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.tsbLoadUsersRoles,
             this.tsbLoadOwnerTeamsRoles,
+            this.tsbSelectAllRecords,
             this.tsbAddUserRole,
             this.tsbDel,
             this.tsddExport,
@@ -97,10 +94,8 @@
             this.toolStripSeparator2,
             this.tslSearch,
             this.tstSearch,
-            this.tslIsDefaultTeam,
-            this.tscIsDefaultTeam,
-            this.tslCount,
-            this.tsbAbout});
+            this.tsbAbout,
+            this.tslCount});
             this.tsMain.Location = new System.Drawing.Point(0, 0);
             this.tsMain.Name = "tsMain";
             this.tsMain.Size = new System.Drawing.Size(1200, 32);
@@ -111,8 +106,8 @@
             // 
             this.tsbLoadUsersRoles.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
             this.tsbLoadUsersRoles.Name = "tsbLoadUsersRoles";
-            this.tsbLoadUsersRoles.Size = new System.Drawing.Size(129, 29);
-            this.tsbLoadUsersRoles.Text = "Load Users & Roles";
+            this.tsbLoadUsersRoles.Size = new System.Drawing.Size(141, 29);
+            this.tsbLoadUsersRoles.Text = "Load Users && Roles";
             // 
             // tsbLoadOwnerTeamsRoles
             // 
@@ -120,6 +115,15 @@
             this.tsbLoadOwnerTeamsRoles.Name = "tsbLoadOwnerTeamsRoles";
             this.tsbLoadOwnerTeamsRoles.Size = new System.Drawing.Size(179, 29);
             this.tsbLoadOwnerTeamsRoles.Text = "Load Owner Teams Roles";
+            // 
+            // tsbSelectAllRecords
+            // 
+            this.tsbSelectAllRecords.CheckOnClick = true;
+            this.tsbSelectAllRecords.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.tsbSelectAllRecords.Name = "tsbSelectAllRecords";
+            this.tsbSelectAllRecords.Size = new System.Drawing.Size(137, 29);
+            this.tsbSelectAllRecords.Text = "Select/Unselect All";
+            this.tsbSelectAllRecords.ToolTipText = "Select/Deselect all visible records";
             // 
             // tsbAddUserRole
             // 
@@ -171,9 +175,8 @@
             // tscBusinessUnit
             // 
             this.tscBusinessUnit.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.tscBusinessUnit.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.tscBusinessUnit.Name = "tscBusinessUnit";
-            this.tscBusinessUnit.Size = new System.Drawing.Size(170, 32);
+            this.tscBusinessUnit.Size = new System.Drawing.Size(190, 32);
             // 
             // tslTeam
             // 
@@ -184,27 +187,25 @@
             // tscTeam
             // 
             this.tscTeam.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.tscTeam.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.tscTeam.Name = "tscTeam";
-            this.tscTeam.Size = new System.Drawing.Size(170, 32);
+            this.tscTeam.Size = new System.Drawing.Size(190, 28);
             // 
             // tslAssignment
             // 
             this.tslAssignment.Name = "tslAssignment";
-            this.tslAssignment.Size = new System.Drawing.Size(89, 29);
+            this.tslAssignment.Size = new System.Drawing.Size(89, 20);
             this.tslAssignment.Text = "Assignment:";
             // 
             // tscAssignment
             // 
             this.tscAssignment.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.tscAssignment.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.tscAssignment.Name = "tscAssignment";
-            this.tscAssignment.Size = new System.Drawing.Size(95, 28);
+            this.tscAssignment.Size = new System.Drawing.Size(110, 28);
             // 
             // toolStripSeparator2
             // 
             this.toolStripSeparator2.Name = "toolStripSeparator2";
-            this.toolStripSeparator2.Size = new System.Drawing.Size(6, 25);
+            this.toolStripSeparator2.Size = new System.Drawing.Size(6, 31);
             // 
             // tslSearch
             // 
@@ -218,18 +219,15 @@
             this.tstSearch.Name = "tstSearch";
             this.tstSearch.Size = new System.Drawing.Size(220, 27);
             // 
-            // tslIsDefaultTeam
+            // tsbAbout
             // 
-            this.tslIsDefaultTeam.Name = "tslIsDefaultTeam";
-            this.tslIsDefaultTeam.Size = new System.Drawing.Size(120, 20);
-            this.tslIsDefaultTeam.Text = "Is Default Team:";
-            // 
-            // tscIsDefaultTeam
-            // 
-            this.tscIsDefaultTeam.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
-            this.tscIsDefaultTeam.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.tscIsDefaultTeam.Name = "tscIsDefaultTeam";
-            this.tscIsDefaultTeam.Size = new System.Drawing.Size(90, 28);
+            this.tsbAbout.Alignment = System.Windows.Forms.ToolStripItemAlignment.Right;
+            this.tsbAbout.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.tsbAbout.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this.tsbAbout.Name = "tsbAbout";
+            this.tsbAbout.Size = new System.Drawing.Size(29, 4);
+            this.tsbAbout.Text = "About";
+            this.tsbAbout.ToolTipText = "About";
             // 
             // tslCount
             // 
@@ -237,15 +235,6 @@
             this.tslCount.Name = "tslCount";
             this.tslCount.Size = new System.Drawing.Size(59, 20);
             this.tslCount.Text = "Rows: 0";
-            // 
-            // tsbAbout
-            // 
-            this.tsbAbout.Alignment = System.Windows.Forms.ToolStripItemAlignment.Right;
-            this.tsbAbout.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
-            this.tsbAbout.Name = "tsbAbout";
-            this.tsbAbout.Size = new System.Drawing.Size(54, 24);
-            this.tsbAbout.Text = "About";
-            this.tsbAbout.ToolTipText = "About";
             // 
             // dgvResults
             // 

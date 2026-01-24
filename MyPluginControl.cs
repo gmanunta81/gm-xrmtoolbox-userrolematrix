@@ -6,8 +6,11 @@ using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Query;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -17,7 +20,9 @@ using System.Windows.Forms;
 using System.Xml.Linq;
 using XrmToolBox.Extensibility;
 using Button = System.Windows.Forms.Button;
+using Color = System.Drawing.Color;
 using ComboBox = System.Windows.Forms.ComboBox;
+using Font = System.Drawing.Font;
 using Image = System.Drawing.Image;
 using Label = System.Windows.Forms.Label;
 using ToolTip = System.Windows.Forms.ToolTip;
@@ -26,33 +31,29 @@ namespace GM.XrmToolBox.UserRoleMatrix
 {
     public partial class MyPluginControl : PluginControlBase
     {
-        // -----------------------
-        // MODE (global hidden variable)
-        // -----------------------
+        private readonly BindingSource _bindingSource = new BindingSource();
+        private DataTable _table;
+        private DataView _view;
+
+        // Global mode: "systemuser" or "team" or ""
         private const string ModeNone = "";
         private const string ModeSystemUser = "systemuser";
         private const string ModeTeam = "team";
         private string _currentMode = ModeNone;
-        private const string AboutIconBase64 =
-  "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADf0lEQVR42u2Xa0hTYRjH/2eXc3brzNXUuUJDaxOnrVgXukmEZZkfihYliRRBYWQWRCn1qaB1nUVhsT5UUISaIFnR5UPQfUZmMaNsoEsj03ltc3q2efrQWrNpTmquDz1wvpyH9/3/zvM+z3OeF4iwESN6iizsX1U6kkqEBlBkYVmDJiEsX1tcb/sVhDecOFFcbwsHAGvQJBCwsIEQnPES/xEB1qBJCDxePwnLsvHhFA+KBEF8/BmBv51woZhPkxPpMvwPEHEA3kgOikcgf95ErEujoYmlICY5cDCDaHd48d4+gJxrLXAwg7izOQGZKgkAoMHOINn4AawvpUkugaZ9KsRN+C5zta4HuWUto0dALubCvD0RJdkK8Fwd3cv1m0olsuhNM1NU+cUFW05L7PUN1O19RjB9/YHrVHISWY3Gc/AhbNBK/eIAgPqbD1FdVDJqBExrlNDGCeDsczHZ6brCdp4iFmvO7rfFqKfaHPbuSuNzK9pau+Bl3AAEAMAwjIckSd6uLTkLbpke1SIpXbdr4SQE+kI6glgJD6tTaABARXnZ4/ZuB4P80gMQyb6/lCqjIVVGQ71sfuC6urq6Rqk0SpyRkaHVHL9YGpO4UjdLKYC59s3HKDHFVavVk0NKwpQYCoSvP1qt1s9IzlwAkYy+sn4KWIPG/+xZLB/a3ViWPX2p3AwAhfol03fPFbgAoOTY4QrwKDLkKiCIIZsCsvg4AMgta4FQt/aM3/ngxGWYL1UFrr1cUf2yy+Fy5+XlLVmVFito/tzWW1lZ+QwCWhIywNu2AX8WJyUlKYYQZR0q+F1J9bn63Rde9HAoiuJzOARx5tTJKo9ILgMpFoYM0PrVg2pLhxsA9Hr9/ChPR9dY6vqsuZfr8Q6yTqez/4LJdA+6javG3Ii23rDz31ptdpqmRVWGbYu0E70ukksgTSEYFaC5xw3+zgcdElqa2+0c8EKrXzbmRvTF4cGc8838Amn5jXVZSzWPt0/jCoRCtrd/kGho/eq2PL3/sqam5gO4c2cPuyutkGPv6+t/1An7+DLp0Z6lmUf3XL2Fd3fPobPpEzwDbpASIUQyGtHT4jE7dfqKizagbNtBND55BeUM1XB7JRutgCl7BzqbPkGTnR48E47DNBQ0kPjmw/9/w38EYIRLQ1jNp8kJGpnHKwGDjuBIKhFuiMDs/2euZhG/nEbcvgEhmWjf6ekl5gAAAABJRU5ErkJggg==";
 
-
-        // -----------------------
-        // DATA
-        // -----------------------
-        private DataTable _table;
-        private DataView _view;
-        private readonly BindingSource _bindingSource = new BindingSource();
         private bool _updatingFilters;
+
         private List<string> _allBusinessUnitNames = new List<string>();
-        // Persist all owner team names (so the Team filter can show teams that may not be present in current view)
         private List<string> _allTeamNames = new List<string>();
+        private bool _internalSelectAllChange;
 
-
-        // Org setting status
+        // Persist all owner team names (so Team dropdown can show all teams, not just those in grid)
         private OrgSettingStatus _orgSettingStatus = OrgSettingStatus.Unknown();
 
-        // Export columns (do NOT export technical columns or Selected)
+        // Icons
+        private const string AboutIconBase64 =
+            "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADf0lEQVR42u2Xa0hTYRjH/2eXc3brzNXUuUJDaxOnrVgXukmEZZkfihYliRRBYWQWRCn1qaB1nUVhsT5UUISaIFnR5UPQfUZmMaNsoEsj03ltc3q2efrQWrNpTmquDz1wvpyH9/3/zvM+z3OeF4iwESN6iizsX1U6kkqEBlBkYVmDJiEsX1tcb/sVhDecOFFcbwsHAGvQJBCwsIEQnPES/xEB1qBJCDxePwnLsvHhFA+KBEF8/BmBv51woZhPkxPpMvwPEHEA3kgOikcgf95ErEujoYmlICY5cDCDaHd48d4+gJxrLXAwg7izOQGZKgkAoMHOINn4AawvpUkugaZ9KsRN+C5zta4HuWUto0dALubCvD0RJdkK8Fwd3cv1m0olsuhNM1NU+cUFW05L7PUN1O19RjB9/YHrVHISWY3Gc/AhbNBK/eIAgPqbD1FdVDJqBExrlNDGCeDsczHZ6brCdp4iFmvO7rfFqKfaHPbuSuNzK9pau+Bl3AAEAMAwjIckSd6uLTkLbpke1SIpXbdr4SQE+kI6glgJD6tTaABARXnZ4/ZuB4P80gMQyb6/lCqjIVVGQ71sfuC6urq6Rqk0SpyRkaHVHL9YGpO4UjdLKYC59s3HKDHFVavVk0NKwpQYCoSvP1qt1s9IzlwAkYy+sn4KWIPG/+xZLB/a3ViWPX2p3AwAhfol03fPFbgAoOTY4QrwKDLkKiCIIZsCsvg4AMgta4FQt/aM3/ngxGWYL1UFrr1cUf2yy+Fy5+XlLVmVFito/tzWW1lZ+QwCWhIywNu2AX8WJyUlKYYQZR0q+F1J9bn63Rde9HAoiuJzOARx5tTJKo9ILgMpFoYM0PrVg2pLhxsA9Hr9/ChPR9dY6vqsuZfr8Q6yTqez/4LJdA+6javG3Ii23rDz31ptdpqmRVWGbYu0E70ukksgTSEYFaC5xw3+zgcdElqa2+0c8EKrXzbmRvTF4cGc8838Amn5jXVZSzWPt0/jCoRCtrd/kGho/eq2PL3/sqam5gO4c2cPuyutkGPv6+t/1An7+DLp0Z6lmUf3XL2Fd3fPobPpEzwDbpASIUQyGtHT4jE7dfqKizagbNtBND55BeUM1XB7JRutgCl7BzqbPkGTnR48E47DNBQ0kPjmw/9/w38EYIRLQ1jNp8kJGpnHKwGDjuBIKhFuiMDs/2euZhG/nEbcvgEhmWjf6ekl5gAAAABJRU5ErkJggg==";
+
         private static readonly string[] ExportColumns = new[]
         {
             "User",
@@ -64,13 +65,16 @@ namespace GM.XrmToolBox.UserRoleMatrix
             "Team Business Unit",
             "Role",
             "Role Business Unit",
-            "Duplicated Role via Teams"
+            "Duplicate"
         };
 
         public MyPluginControl()
         {
-            DependencyResolver.Register();
             InitializeComponent();
+
+            // Dependency resolver for ClosedXML + dependencies in dedicated folder
+            DependencyResolver.Register();
+
             tsbAbout.Image = ImageFromBase64(AboutIconBase64);
             tsbAbout.Click += (s, e) => ShowAboutDialog();
 
@@ -78,69 +82,88 @@ namespace GM.XrmToolBox.UserRoleMatrix
             dgvResults.AutoGenerateColumns = true;
             dgvResults.AllowUserToAddRows = false;
             dgvResults.AllowUserToDeleteRows = false;
+            dgvResults.ReadOnly = false;
             dgvResults.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             dgvResults.MultiSelect = true;
-            dgvResults.EditMode = DataGridViewEditMode.EditOnEnter;
+
             dgvResults.DataSource = _bindingSource;
-
-            // Toolstrip events
-            tsbLoadUsersRoles.Click += (s, e) => ExecuteMethod(LoadUsersAndRoles);
-            tsbLoadOwnerTeamsRoles.Click += (s, e) => ExecuteMethod(LoadOwnerTeamsRoles);
-            tsbDel.Click += (s, e) => ExecuteMethod(DeleteSelectedAssignments);
-            tsbAddUserRole.Click += (s, e) => ExecuteMethod(OpenAddUserRoleDialog);
-
-            tsmiExportCsv.Click += (s, e) => ExportCsv();
-            tsmiExportExcel.Click += (s, e) => ExportExcel();
-
-            // Filters/search
-            tstSearch.TextChanged += (s, e) => ApplyAllFilters();
-            tscBusinessUnit.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
-            tscTeam.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
-            tscAssignment.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
-            if (tscIsDefaultTeam != null)
-                tscIsDefaultTeam.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
-
             dgvResults.DataBindingComplete += (s, e) =>
             {
                 ConfigureGridColumns();
                 ApplyDuplicateRowHighlight();
             };
 
+            // Toolstrip events
+            tsbLoadUsersRoles.Click += (s, e) => ExecuteMethod(LoadUsersAndRoles);
+            tsbLoadOwnerTeamsRoles.Click += (s, e) => ExecuteMethod(LoadOwnerTeamsRoles);
+
+            tsbSelectAllRecords.CheckedChanged += (s, e) =>
+            {
+                if (_internalSelectAllChange) return;
+                ToggleSelectAllRecords(tsbSelectAllRecords.Checked);
+            };
+
+            tsbAddUserRole.Click += (s, e) => ExecuteMethod(OpenAddUserRoleDialog);
+            tsbDel.Click += (s, e) => ExecuteMethod(DeleteSelectedAssignments);
+
+            tsmiExportCsv.Click += (s, e) => ExportCsv();
+            tsmiExportExcel.Click += (s, e) => ExportExcel();
+
+            // Filters/search
+            tscBusinessUnit.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
+            tscTeam.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
+            tscAssignment.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
+            tstSearch.TextChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
+
             InitializeStaticFilters();
             UpdateCountLabel(0, 0);
+
+            UpdateConnectionControls(false);
             UpdateActionButtonsEnabledState();
         }
-        private void ShowAboutDialog()
+
+        public override void UpdateConnection(IOrganizationService newService, ConnectionDetail connectionDetail, string actionName = "", object parameter = null)
         {
-            using (var f = new AboutForm())
+            base.UpdateConnection(newService, connectionDetail, actionName, parameter);
+
+            if (newService == null)
             {
-                f.StartPosition = FormStartPosition.CenterParent;
-                f.ShowDialog(this);
+                ClearResults();
+                UpdateConnectionControls(false);
+                return;
             }
+
+            // When we connect, enable buttons and read org setting status asynchronously
+            UpdateConnectionControls(true);
+            ReadOrgSettingsAsync();
         }
 
-        public override void UpdateConnection(IOrganizationService newService, ConnectionDetail detail, string actionName, object parameter)
+        private void UpdateConnectionControls(bool connected)
         {
-            base.UpdateConnection(newService, detail, actionName, parameter);
-
-            ClearResults();
-            RefreshOrgSettingStatus(); // async in background
+            tsbLoadUsersRoles.Enabled = connected;
+            tsbLoadOwnerTeamsRoles.Enabled = connected;
+            tsbAddUserRole.Enabled = connected;
+            tsbDel.Enabled = connected;
+            tsddExport.Enabled = connected;
         }
 
-        // -----------------------
-        // UI helpers
-        // -----------------------
+        private void UpdateActionButtonsEnabledState()
+        {
+            var hasData = _table != null && _table.Rows.Count > 0;
+
+            tsbSelectAllRecords.Enabled = hasData;
+            if (!hasData)
+                SetSelectAllRecordsChecked(false);
+
+            tsbDel.Enabled = hasData && (_currentMode == ModeSystemUser || _currentMode == ModeTeam);
+            tsbAddUserRole.Enabled = true; // always available, it reloads user view after add
+        }
+
         private void InitializeStaticFilters()
         {
             _updatingFilters = true;
             try
             {
-                tscAssignment.Items.Clear();
-                tscAssignment.Items.Add("All");
-                tscAssignment.Items.Add("Direct");
-                tscAssignment.Items.Add("Team");
-                tscAssignment.SelectedIndex = 0;
-
                 tscBusinessUnit.Items.Clear();
                 tscBusinessUnit.Items.Add("All");
                 tscBusinessUnit.SelectedIndex = 0;
@@ -149,20 +172,34 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 tscTeam.Items.Add("All");
                 tscTeam.SelectedIndex = 0;
 
-                if (tscIsDefaultTeam != null)
-                {
-                    tscIsDefaultTeam.Items.Clear();
-                    tscIsDefaultTeam.Items.Add("All");
-                    tscIsDefaultTeam.Items.Add("Yes");
-                    tscIsDefaultTeam.Items.Add("No");
-                    tscIsDefaultTeam.SelectedIndex = 0;
-                }
+                tscAssignment.Items.Clear();
+                tscAssignment.Items.Add("All");
+                tscAssignment.Items.Add("Direct");
+                tscAssignment.Items.Add("Team");
+                tscAssignment.SelectedIndex = 0;
+
+                tstSearch.Text = "";
             }
             finally
             {
                 _updatingFilters = false;
             }
         }
+
+        private void UpdateCountLabel(int filtered, int total)
+        {
+            var settingText = _orgSettingStatus.IsKnown
+                ? (_orgSettingStatus.EnableOwnershipAcrossBusinessUnits ? "EnableOwnershipAcrossBUs: ON" : "EnableOwnershipAcrossBUs: OFF")
+                : "EnableOwnershipAcrossBUs: Unknown";
+
+            tslCount.Text = $"Rows: {filtered}/{total} | {settingText}";
+        }
+
+        private void SetWorkingMessage(string message)
+        {
+            // XrmToolBox already shows "Working..." message; we can optionally extend. No-op here.
+        }
+
         private static Image ImageFromBase64(string base64)
         {
             var bytes = Convert.FromBase64String(base64);
@@ -170,6 +207,54 @@ namespace GM.XrmToolBox.UserRoleMatrix
             using (var img = Image.FromStream(ms))
             {
                 return new Bitmap(img);
+            }
+        }
+
+        private void SetSelectAllRecordsChecked(bool isChecked)
+        {
+            if (tsbSelectAllRecords == null) return;
+            _internalSelectAllChange = true;
+            try
+            {
+                tsbSelectAllRecords.Checked = isChecked;
+            }
+            finally
+            {
+                _internalSelectAllChange = false;
+            }
+        }
+
+        private void ToggleSelectAllRecords(bool select)
+        {
+            if (_view == null || dgvResults.Rows.Count == 0) return;
+
+            // Commit any pending edits in the grid
+            dgvResults.EndEdit();
+
+            _bindingSource.RaiseListChangedEvents = false;
+            try
+            {
+                foreach (DataGridViewRow gridRow in dgvResults.Rows)
+                {
+                    if (gridRow.DataBoundItem is DataRowView drv)
+                    {
+                        drv.Row["Selected"] = select;
+                    }
+                }
+            }
+            finally
+            {
+                _bindingSource.RaiseListChangedEvents = true;
+                _bindingSource.ResetBindings(false);
+            }
+        }
+
+        private void ShowAboutDialog()
+        {
+            using (var f = new AboutForm())
+            {
+                f.StartPosition = FormStartPosition.CenterParent;
+                f.ShowDialog(this);
             }
         }
 
@@ -181,35 +266,18 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             _currentMode = ModeNone;
 
+            SetSelectAllRecordsChecked(false);
             InitializeStaticFilters();
             UpdateCountLabel(0, 0);
             UpdateActionButtonsEnabledState();
         }
 
-        private void UpdateActionButtonsEnabledState()
-        {
-            var hasData = _table != null && _table.Rows.Count > 0;
-
-            tsbDel.Enabled = hasData && (_currentMode == ModeSystemUser || _currentMode == ModeTeam);
-            tsbAddUserRole.Enabled = true; // always available, it reloads user view after add
-        }
-
-        private void UpdateCountLabel(int filtered, int total)
-        {
-            var recomputeText = _orgSettingStatus.IsKnown
-                ? (_orgSettingStatus.EnableOwnershipAcrossBusinessUnits ? "Active" : "Inactive")
-                : "Unknown";
-
-            // Required feature #1: status near record count
-            tslCount.Text = $"Rows: {filtered:n0} / {total:n0} | EnableOwnershipAccrossBUs: {recomputeText}";
-        }
-
         // -----------------------
-        // Feature #1: Read Org Setting
+        // Feature #1: Org setting label (EnableOwnershipAcrossBusinessUnits)
         // -----------------------
-        private void RefreshOrgSettingStatus()
+        private void ReadOrgSettingsAsync()
         {
-            if (Service == null) return;
+            _orgSettingStatus = OrgSettingStatus.Unknown();
 
             WorkAsync(new WorkAsyncInfo
             {
@@ -240,7 +308,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
         private static OrgSettingStatus TryReadOrgSettingStatus(IOrganizationService svc)
         {
-            // Under the hood this is stored in organization.orgdborgsettings as XML. :contentReference[oaicite:1]{index=1}
+            // Under the hood this is stored in organization.orgdborgsettings as XML.
             try
             {
                 var qe = new QueryExpression("organization")
@@ -256,7 +324,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 if (string.IsNullOrWhiteSpace(xml))
                     return OrgSettingStatus.Known(false);
 
-                // Parse XML and get the RecomputeOwnershipAcrossBusinessUnits element
+                // Parse XML and get the EnableOwnershipAcrossBusinessUnits element
                 var recompute = TryParseOrgSettingBool(xml, "EnableOwnershipAcrossBusinessUnits");
 
                 // If element not found, treat as false but still "Known"
@@ -336,19 +404,15 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     worker.ReportProgress(0, "Retrieving all Business Units...");
                     var allBus = RetrieveAllBusinessUnitNames(Service);
 
+                    worker.ReportProgress(0, "Retrieving all Owner Teams...");
+                    var allTeams = RetrieveAllOwnerTeamNames(Service);
 
                     args.Result = new LoadResult
                     {
                         Rows = rows,
                         BusinessUnits = allBus,
-                        Teams = teamRoles?.Values.SelectMany(l => l)
-                                    .Select(tr => tr.TeamName)
-                                    .Where(n => !string.IsNullOrWhiteSpace(n))
-                                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                                    .ToList()
+                        Teams = allTeams
                     };
-
                 },
                 ProgressChanged = e =>
                 {
@@ -417,9 +481,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
                                     .Where(n => !string.IsNullOrWhiteSpace(n))
                                     .Distinct(StringComparer.OrdinalIgnoreCase)
                                     .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                                    .ToList() ?? new List<string>()
+                                    .ToList()
                     };
-
                 },
                 ProgressChanged = e =>
                 {
@@ -453,7 +516,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
         }
 
         // -----------------------
-        // Feature #3: Delete Selected (DisassociateRequest)
+        // Feature #3: Delete Selected (DisassociateRequest) - now fast via ExecuteMultiple
         // -----------------------
         private void DeleteSelectedAssignments()
         {
@@ -471,9 +534,6 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             // Commit checkbox edits
             dgvResults.EndEdit();
-            // Ensure the in-progress cell edit is committed to the underlying data source
-            dgvResults.CommitEdit(DataGridViewDataErrorContexts.Commit);
-            _bindingSource.EndEdit();
 
             // Gather selected rows (visible)
             var ops = new List<DeleteOp>();
@@ -546,11 +606,25 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     int success = 0;
                     var errors = new List<string>();
 
-                    foreach (var op in ops)
+                    const int batchSize = 500;
+
+                    for (int i = 0; i < ops.Count; i += batchSize)
                     {
-                        try
+                        var batchOps = ops.Skip(i).Take(batchSize).ToList();
+
+                        var emReq = new ExecuteMultipleRequest
                         {
-                            var req = new DisassociateRequest
+                            Settings = new ExecuteMultipleSettings
+                            {
+                                ContinueOnError = true,
+                                ReturnResponses = true
+                            },
+                            Requests = new OrganizationRequestCollection()
+                        };
+
+                        foreach (var op in batchOps)
+                        {
+                            emReq.Requests.Add(new DisassociateRequest
                             {
                                 Target = op.Target,
                                 Relationship = new Relationship(op.RelationshipName),
@@ -558,14 +632,55 @@ namespace GM.XrmToolBox.UserRoleMatrix
                                 {
                                     op.Related
                                 }
-                            };
-
-                            Service.Execute(req);
-                            success++;
+                            });
                         }
-                        catch (Exception ex)
+
+                        try
                         {
-                            errors.Add($"{op.Key}: {ex.Message}");
+                            var emResp = (ExecuteMultipleResponse)Service.Execute(emReq);
+
+                            var failed = new HashSet<int>();
+                            foreach (var respItem in emResp.Responses)
+                            {
+                                if (respItem.Fault != null)
+                                {
+                                    failed.Add(respItem.RequestIndex);
+
+                                    var key = (respItem.RequestIndex >= 0 && respItem.RequestIndex < batchOps.Count)
+                                        ? batchOps[respItem.RequestIndex].Key
+                                        : $"batchIndex:{i}+{respItem.RequestIndex}";
+
+                                    errors.Add($"{key}: {respItem.Fault.Message}");
+                                }
+                            }
+
+                            success += batchOps.Count - failed.Count;
+                        }
+                        catch
+                        {
+                            // Fallback: execute individually for this batch
+                            foreach (var op in batchOps)
+                            {
+                                try
+                                {
+                                    var req = new DisassociateRequest
+                                    {
+                                        Target = op.Target,
+                                        Relationship = new Relationship(op.RelationshipName),
+                                        RelatedEntities = new EntityReferenceCollection
+                                        {
+                                            op.Related
+                                        }
+                                    };
+
+                                    Service.Execute(req);
+                                    success++;
+                                }
+                                catch (Exception ex2)
+                                {
+                                    errors.Add($"{op.Key}: {ex2.Message}");
+                                }
+                            }
                         }
                     }
 
@@ -747,7 +862,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             private readonly ComboBox _cbUser = new ComboBox();
             private readonly ComboBox _cbBusinessUnit = new ComboBox();
             private readonly ComboBox _cbRole = new ComboBox();
-            private readonly Button _btnAdd = new Button();
+            private readonly System.Windows.Forms.Button _btnAdd = new Button();
             private readonly Button _btnCancel = new Button();
             private readonly ToolTip _toolTip = new ToolTip();
 
@@ -775,9 +890,6 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
                 BuildUi();
                 LoadInitialData();
-
-              
-
             }
 
             private void BuildUi()
@@ -806,7 +918,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 _btnAdd.Left = 330;
                 _btnAdd.Top = 170;
                 _btnAdd.Width = 90;
-                _btnAdd.Click += async (s, e) => await AddClickedAsync();
+                _btnAdd.Click += (s, e) => AddClicked();
 
                 _btnCancel.Text = "Cancel";
                 _btnCancel.Left = 430;
@@ -837,11 +949,15 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 _cbUser.Items.Clear();
                 foreach (var u in _users)
                 {
-                    var text = string.IsNullOrWhiteSpace(u.Email)
+                    var baseText = string.IsNullOrWhiteSpace(u.Email)
                         ? u.FullName
                         : $"{u.FullName} ({u.Email})";
 
-                    _cbUser.Items.Add(new ComboItem(u.UserId, text));
+                    var buSuffix = string.IsNullOrWhiteSpace(u.BusinessUnitName)
+                        ? string.Empty
+                        : $" - {u.BusinessUnitName}";
+
+                    _cbUser.Items.Add(new ComboItem(u.UserId, baseText + buSuffix));
                 }
 
                 // Business Units
@@ -875,6 +991,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     if (rootItem != null)
                         _cbBusinessUnit.SelectedItem = rootItem;
                 }
+
                 AttachCloseDropDownOnTyping(_cbUser);
                 AttachCloseDropDownOnTyping(_cbBusinessUnit);
                 AttachCloseDropDownOnTyping(_cbRole);
@@ -891,8 +1008,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
                 _cbRole.Enabled = false;
                 _cbRole.Items.Clear();
-                _cbRole.Items.Add("Loading...");
-                _cbRole.SelectedIndex = 0;
+                // Keep the combobox text empty while loading to avoid a lingering "Loading..." placeholder
+                _cbRole.Text = string.Empty;
 
                 try
                 {
@@ -906,18 +1023,12 @@ namespace GM.XrmToolBox.UserRoleMatrix
                         foreach (var r in roles.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
                             _cbRole.Items.Add(new ComboItem(r.RoleId, r.Name));
 
-                        // If we loaded items, select the first one so the "Loading..." text is removed.
-                        if (_cbRole.Items.Count > 0)
-                        {
-                            _cbRole.SelectedIndex = 0;
-                        }
-                        else
-                        {
-                            _cbRole.SelectedIndex = -1;
-                            _cbRole.Text = string.Empty;
-                        }
-
                         _cbRole.Enabled = true;
+                        // Select first item only if we have entries; otherwise leave blank
+                        if (_cbRole.Items.Count > 0)
+                            _cbRole.SelectedIndex = 0;
+                        else
+                            _cbRole.Text = string.Empty;
                     }));
                 }
                 catch
@@ -927,14 +1038,13 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     BeginInvoke(new Action(() =>
                     {
                         _cbRole.Items.Clear();
-                        _cbRole.Enabled = true;
-                        _cbRole.SelectedIndex = -1;
                         _cbRole.Text = string.Empty;
+                        _cbRole.Enabled = true;
                     }));
                 }
             }
 
-            private async System.Threading.Tasks.Task AddClickedAsync()
+            private void AddClicked()
             {
                 var userItem = _cbUser.SelectedItem as ComboItem;
                 var buItem = _cbBusinessUnit.SelectedItem as ComboItem;
@@ -952,7 +1062,6 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     MessageBox.Show("Please set properly the sec data.", "Add User Role", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
-
                 var req = new AssociateRequest
                 {
                     Target = new EntityReference("systemuser", userItem.Id),
@@ -963,25 +1072,12 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     }
                 };
 
-                // Show a small modal wait dialog while the operation completes.
-                using (var wait = new Form()
-                {
-                    StartPosition = FormStartPosition.CenterParent,
-                    FormBorderStyle = FormBorderStyle.FixedDialog,
-                    ControlBox = false,
-                    Width = 300,
-                    Height = 100
-                })
-                {
-                    var lbl = new Label { Text = "Please wait...", Left = 16, Top = 16, Width = 260 };
-                    var pb = new System.Windows.Forms.ProgressBar { Style = ProgressBarStyle.Marquee, Left = 16, Top = 40, Width = 260, Height = 16 };
-                    wait.Controls.Add(lbl);
-                    wait.Controls.Add(pb);
+                Exception executeException = null;
 
-                    Exception exception = null;
-
-                    // Run the associate request on a background thread and close the wait dialog when done
-                    var background = System.Threading.Tasks.Task.Run(() =>
+                using (var waiting = new WaitingForm("waiting adding record"))
+                {
+                    // Execute on background thread and close waiting dialog when done
+                    System.Threading.Tasks.Task.Run(() =>
                     {
                         try
                         {
@@ -989,43 +1085,34 @@ namespace GM.XrmToolBox.UserRoleMatrix
                         }
                         catch (Exception ex)
                         {
-                            exception = ex;
+                            executeException = ex;
                         }
-
-                        try
+                        finally
                         {
-                            if (!wait.IsDisposed)
-                                wait.Invoke(new Action(() => wait.Close()));
-                        }
-                        catch
-                        {
-                            // ignore invoke/close errors
+                            try
+                            {
+                                if (!waiting.IsDisposed)
+                                    waiting.BeginInvoke(new Action(() => { try { waiting.Close(); } catch { } }));
+                            }
+                            catch
+                            {
+                                // ignore
+                            }
                         }
                     });
 
-                    // Show modal dialog; it will be closed by the background task via Invoke
-                    try
-                    {
-                        wait.ShowDialog(this);
-                    }
-                    catch
-                    {
-                        // ignore show dialog errors
-                    }
-
-                    // Ensure background finished and exception is observed
-                    try { await background; } catch { }
-
-                    if (exception == null)
-                    {
-                        DialogResult = DialogResult.OK;
-                        Close();
-                    }
-                    else
-                    {
-                        MessageBox.Show(exception.Message, "Add User Role", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    // Show modal waiting dialog; it will be closed by background task
+                    waiting.ShowDialog(this);
                 }
+
+                if (executeException != null)
+                {
+                    MessageBox.Show(executeException.Message, "Add User Role", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                DialogResult = DialogResult.OK;
+                Close();
             }
 
             private sealed class ComboItem
@@ -1073,7 +1160,33 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 }
             }
 
+            private sealed class WaitingForm : Form
+            {
+                public WaitingForm(string message)
+                {
+                    FormBorderStyle = FormBorderStyle.FixedDialog;
+                    StartPosition = FormStartPosition.CenterParent;
+                    ShowInTaskbar = false;
+                    ControlBox = false;
+                    Width = 360;
+                    Height = 110;
+                    BackColor = Color.LightYellow;
 
+                    var lbl = new Label
+                    {
+                        Text = message ?? "Please wait...",
+                        AutoSize = false,
+                        TextAlign = ContentAlignment.MiddleCenter,
+                        Dock = DockStyle.Fill,
+                        Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10, FontStyle.Bold)
+                    };
+
+                    Controls.Add(lbl);
+
+                    Shown += (s, e) => Cursor = Cursors.WaitCursor;
+                    FormClosed += (s, e) => Cursor = Cursors.Default;
+                }
+            }
         }
 
         private sealed class AboutForm : Form
@@ -1084,20 +1197,39 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 FormBorderStyle = FormBorderStyle.FixedDialog;
                 MaximizeBox = false;
                 MinimizeBox = false;
-                Width = 520;
-                Height = 220;
+                ShowInTaskbar = false;
+                Width = 560;
+                Height = 260;
 
-                var lblName = new Label { Left = 16, Top = 20, Width = 470, Text = "Giovanni Manunta" };
-                var linkLinkedIn = new LinkLabel { Left = 16, Top = 80, Width = 470, Text = "LinkedIn profile" };
-                var linkGitHub = new LinkLabel { Left = 16, Top = 110, Width = 470, Text = "GitHub profile" };
+                var pic = new PictureBox
+                {
+                    Left = 16,
+                    Top = 20,
+                    Width = 64,
+                    Height = 64,
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                    Image = ImageFromBase64(AboutIconBase64)
+                };
 
-                var btnOk = new Button { Text = "OK", Left = 400, Top = 140, Width = 80, DialogResult = DialogResult.OK };
+                var lblName = new Label
+                {
+                    Left = 96,
+                    Top = 20,
+                    Width = 440,
+                    Text = "Giovanni Manunta",
+                    Font = new Font(SystemFonts.MessageBoxFont, FontStyle.Bold)
+                };
+
+                var linkLinkedIn = new LinkLabel { Left = 96, Top = 80, Width = 440, Text = "LinkedIn profile" };
+                var linkGitHub = new LinkLabel { Left = 96, Top = 110, Width = 440, Text = "GitHub profile" };
+
+                var btnOk = new Button { Text = "OK", Left = 440, Top = 160, Width = 80, DialogResult = DialogResult.OK };
                 AcceptButton = btnOk;
 
-                
                 linkLinkedIn.LinkClicked += (s, e) => OpenUrl("https://www.linkedin.com/in/giovanni-manunta-3555868/");
                 linkGitHub.LinkClicked += (s, e) => OpenUrl("https://github.com/gmanunta81");
 
+                Controls.Add(pic);
                 Controls.Add(lblName);
                 Controls.Add(linkLinkedIn);
                 Controls.Add(linkGitHub);
@@ -1115,7 +1247,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 }
                 catch
                 {
-                    // optional: ignore
+                    // ignore
                 }
             }
         }
@@ -1128,12 +1260,13 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public List<string> Teams { get; set; }
         }
 
-
         // -----------------------
         // Table binding
         // -----------------------
         private void BindRows(List<MatrixRow> rows)
         {
+            SetSelectAllRecordsChecked(false);
+
             _table = CreateSchema();
 
             foreach (var r in rows)
@@ -1159,7 +1292,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 dr["Role"] = r.RoleName ?? "";
                 dr["Role Business Unit"] = r.RoleBusinessUnit ?? "";
 
-                dr["Duplicated Role via Teams"] = r.Duplicate;
+                dr["Duplicate"] = r.Duplicate;
 
                 _table.Rows.Add(dr);
             }
@@ -1193,7 +1326,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             dt.Columns.Add("Team Business Unit", typeof(string));
             dt.Columns.Add("Role", typeof(string));
             dt.Columns.Add("Role Business Unit", typeof(string));
-            dt.Columns.Add("Duplicated Role via Teams", typeof(bool));
+            dt.Columns.Add("Duplicate", typeof(bool));
 
             return dt;
         }
@@ -1238,18 +1371,39 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
         private void ApplyDuplicateRowHighlight()
         {
-            if (dgvResults.Rows.Count == 0 || dgvResults.Columns["Duplicated Role via Teams"] == null)
+            if (dgvResults.Rows.Count == 0 || dgvResults.Columns["Duplicate"] == null)
                 return;
 
             var normalBack = dgvResults.RowsDefaultCellStyle.BackColor;
-            if (normalBack == System.Drawing.Color.Empty)
+            if (normalBack == Color.Empty)
                 normalBack = SystemColors.Window;
 
             foreach (DataGridViewRow row in dgvResults.Rows)
             {
-                var value = row.Cells["Duplicated Role via Teams"]?.Value;
+                var value = row.Cells["Duplicate"]?.Value;
                 var isDup = value is bool b && b;
-                row.DefaultCellStyle.BackColor = isDup ? System.Drawing.Color.LightYellow : normalBack;
+                row.DefaultCellStyle.BackColor = isDup ? Color.LightYellow : normalBack;
+            }
+        }
+
+        private void HideColumn(string columnName)
+        {
+            if (dgvResults.Columns[columnName] != null)
+                dgvResults.Columns[columnName].Visible = false;
+        }
+
+        private void SetColumnVisible(string columnName, bool visible)
+        {
+            if (dgvResults.Columns[columnName] != null)
+                dgvResults.Columns[columnName].Visible = visible;
+        }
+
+        private void SetFixedColumnWidth(string columnName, int width)
+        {
+            if (dgvResults.Columns[columnName] != null)
+            {
+                dgvResults.Columns[columnName].Width = width;
+                dgvResults.Columns[columnName].AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
             }
         }
 
@@ -1263,14 +1417,11 @@ namespace GM.XrmToolBox.UserRoleMatrix
             _updatingFilters = true;
             try
             {
-                string buColumn = (_currentMode == ModeTeam) ? "Team Business Unit" : "User Business Unit";
-
                 var businessUnits = (_allBusinessUnitNames ?? new List<string>())
-                 .Where(s => !string.IsNullOrWhiteSpace(s))
-                 .Distinct(StringComparer.OrdinalIgnoreCase)
-                 .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                 .ToList();
-
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
                 var teamsInTable = _table.AsEnumerable()
                     .Select(r => r.Field<string>("Team"))
@@ -1320,16 +1471,6 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 filters.Add($"[Assignment Type] = 'Direct'");
             else if (string.Equals(assignment, "Team", StringComparison.OrdinalIgnoreCase))
                 filters.Add($"[Assignment Type] = 'Team'");
-
-            // Is Default Team filter (Only applicable when the column exists)
-            if (tscIsDefaultTeam != null)
-            {
-                var isDefault = (tscIsDefaultTeam.SelectedItem?.ToString() ?? "All").Trim();
-                if (string.Equals(isDefault, "Yes", StringComparison.OrdinalIgnoreCase))
-                    filters.Add("[Is Default Team] = 'Yes'");
-                else if (string.Equals(isDefault, "No", StringComparison.OrdinalIgnoreCase))
-                    filters.Add("[Is Default Team] = 'No'");
-            }
 
             var search = (tstSearch.Text ?? "").Trim();
             if (!string.IsNullOrWhiteSpace(search))
@@ -1459,7 +1600,21 @@ namespace GM.XrmToolBox.UserRoleMatrix
                             return;
                         }
 
-                        MessageBox.Show("Excel export completed.", "Export", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        var openNow = MessageBox.Show("Excel export completed.\n\nOpen the file now?", "Export", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                        if (openNow == DialogResult.Yes)
+                        {
+                            try
+                            {
+                                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path)
+                                {
+                                    UseShellExecute = true
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                MessageBox.Show(ex.Message, "Open file", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            }
+                        }
                     }
                 });
             }
@@ -1479,6 +1634,73 @@ namespace GM.XrmToolBox.UserRoleMatrix
         // -----------------------
         // DATA RETRIEVAL (QueryExpression only)
         // -----------------------
+        private static List<string> RetrieveAllBusinessUnitNames(IOrganizationService svc)
+        {
+            var qe = new QueryExpression("businessunit")
+            {
+                ColumnSet = new ColumnSet("name"),
+                NoLock = true
+            };
+            qe.Orders.Add(new OrderExpression("name", OrderType.Ascending));
+
+            var ec = RetrieveAll(svc, qe);
+
+            return ec.Entities
+                .Select(e => e.GetAttributeValue<string>("name"))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static List<string> RetrieveAllOwnerTeamNames(IOrganizationService svc)
+        {
+            var qe = new QueryExpression("team")
+            {
+                ColumnSet = new ColumnSet("name"),
+                NoLock = true
+            };
+            qe.Criteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner Teams
+            qe.Orders.Add(new OrderExpression("name", OrderType.Ascending));
+
+            var ec = RetrieveAll(svc, qe);
+
+            return ec.Entities
+                .Select(e => e.GetAttributeValue<string>("name"))
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService svc, Guid businessUnitId)
+        {
+            var qe = new QueryExpression("role")
+            {
+                ColumnSet = new ColumnSet("roleid", "name", "businessunitid"),
+                NoLock = true
+            };
+            qe.Criteria.AddCondition("businessunitid", ConditionOperator.Equal, businessUnitId);
+
+            var buLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+            buLink.EntityAlias = "rolebu";
+            buLink.Columns = new ColumnSet("name");
+
+            var ec = RetrieveAll(svc, qe);
+
+            var roles = new List<RoleInfo>();
+            foreach (var e in ec.Entities)
+            {
+                roles.Add(new RoleInfo
+                {
+                    RoleId = e.Id,
+                    Name = e.GetAttributeValue<string>("name"),
+                    BusinessUnitName = GetAliasedString(e, "rolebu", "name")
+                });
+            }
+
+            return roles;
+        }
 
         private static Dictionary<Guid, UserInfo> RetrieveAllUsers(IOrganizationService svc)
         {
@@ -1512,6 +1734,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
         private static Dictionary<Guid, List<RoleInfo>> RetrieveDirectUserRoles(IOrganizationService svc)
         {
+            // systemuserroles: intersect entity systemuser <-> role
             var qe = new QueryExpression("systemuserroles")
             {
                 ColumnSet = new ColumnSet("systemuserid", "roleid"),
@@ -1520,7 +1743,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             var roleLink = qe.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
             roleLink.EntityAlias = "role";
-            roleLink.Columns = new ColumnSet("roleid", "name", "businessunitid");
+            roleLink.Columns = new ColumnSet("name", "businessunitid");
 
             var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
             roleBuLink.EntityAlias = "rolebu";
@@ -1528,111 +1751,180 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             var ec = RetrieveAll(svc, qe);
 
-            var map = new Dictionary<Guid, List<RoleInfo>>();
-            var dedupe = new Dictionary<Guid, HashSet<Guid>>();
+            var dict = new Dictionary<Guid, List<RoleInfo>>();
 
             foreach (var e in ec.Entities)
             {
                 var userId = GetIdFromAttribute(e, "systemuserid");
                 var roleId = GetIdFromAttribute(e, "roleid");
+
                 if (userId == Guid.Empty || roleId == Guid.Empty) continue;
 
-                if (!map.TryGetValue(userId, out var list))
+                var role = new RoleInfo
+                {
+                    RoleId = roleId,
+                    Name = GetAliasedString(e, "role", "name"),
+                    BusinessUnitName = GetAliasedString(e, "rolebu", "name")
+                };
+
+                if (!dict.TryGetValue(userId, out var list))
                 {
                     list = new List<RoleInfo>();
-                    map[userId] = list;
-                    dedupe[userId] = new HashSet<Guid>();
+                    dict[userId] = list;
                 }
 
-                if (dedupe[userId].Add(roleId))
-                {
-                    list.Add(new RoleInfo
-                    {
-                        RoleId = roleId,
-                        Name = GetAliasedString(e, "role", "name"),
-                        BusinessUnitName = GetAliasedString(e, "rolebu", "name")
-                    });
-                }
+                // de-dupe by role id
+                if (!list.Any(r => r.RoleId == role.RoleId))
+                    list.Add(role);
             }
 
-            return map;
+            return dict;
         }
 
         private static Dictionary<Guid, List<TeamRoleInfo>> RetrieveTeamUserRoles(IOrganizationService svc)
         {
-            var qe = new QueryExpression("teammembership")
+            // For each user: their teams -> those teams' roles
+            // We retrieve team membership via teammembership and then teamroles.
+
+            // 1) teammembership: systemuser <-> team
+            var qeMember = new QueryExpression("teammembership")
             {
                 ColumnSet = new ColumnSet("systemuserid", "teamid"),
                 NoLock = true
             };
 
-            var teamLink = qe.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
+            // join team to filter owner teams only
+            var teamLink = qeMember.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
             teamLink.EntityAlias = "team";
-            // include isdefault so we can surface it in team-role rows
-            teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid", "isdefault");
-            teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner team
+            teamLink.Columns = new ColumnSet("name", "teamtype", "businessunitid", "isdefault");
+            teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner
 
             var teamBuLink = teamLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
             teamBuLink.EntityAlias = "teambu";
             teamBuLink.Columns = new ColumnSet("name");
 
-            var teamRolesLink = teamLink.AddLink("teamroles", "teamid", "teamid", JoinOperator.Inner);
+            var memberEc = RetrieveAll(svc, qeMember);
 
-            var roleLink = teamRolesLink.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
+            // Build membership list
+            var membership = new List<(Guid UserId, Guid TeamId, string TeamName, string TeamBu, bool IsDefault)>();
+            foreach (var e in memberEc.Entities)
+            {
+                var userId = GetIdFromAttribute(e, "systemuserid");
+                var teamId = GetIdFromAttribute(e, "teamid");
+                if (userId == Guid.Empty || teamId == Guid.Empty) continue;
+
+                membership.Add((userId, teamId,
+                    GetAliasedString(e, "team", "name"),
+                    GetAliasedString(e, "teambu", "name"),
+                    GetAliasedBoolean(e, "team", "isdefault") ?? false));
+            }
+
+            // 2) teamroles: team <-> role
+            var qeTeamRoles = new QueryExpression("teamroles")
+            {
+                ColumnSet = new ColumnSet("teamid", "roleid"),
+                NoLock = true
+            };
+
+            // join role for name and BU
+            var roleLink = qeTeamRoles.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
             roleLink.EntityAlias = "role";
-            roleLink.Columns = new ColumnSet("roleid", "name", "businessunitid");
+            roleLink.Columns = new ColumnSet("name", "businessunitid");
 
             var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
             roleBuLink.EntityAlias = "rolebu";
             roleBuLink.Columns = new ColumnSet("name");
 
-            var ec = RetrieveAll(svc, qe);
+            // join team to filter owner teams and get BU
+            var teamLink2 = qeTeamRoles.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
+            teamLink2.EntityAlias = "team";
+            teamLink2.Columns = new ColumnSet("name", "teamtype", "businessunitid", "isdefault");
+            teamLink2.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner
 
-            var map = new Dictionary<Guid, List<TeamRoleInfo>>();
-            var dedupe = new Dictionary<Guid, HashSet<string>>();
+            var teamBuLink2 = teamLink2.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+            teamBuLink2.EntityAlias = "teambu";
+            teamBuLink2.Columns = new ColumnSet("name");
 
-            foreach (var e in ec.Entities)
+            var teamRoleEc = RetrieveAll(svc, qeTeamRoles);
+
+            // Map: teamId -> roles
+            var teamRolesMap = new Dictionary<Guid, List<TeamRoleInfo>>();
+            foreach (var e in teamRoleEc.Entities)
             {
-                var userId = GetIdFromAttribute(e, "systemuserid");
                 var teamId = GetIdFromAttribute(e, "teamid");
-                var roleId = GetAliasedGuid(e, "role", "roleid");
+                var roleId = GetIdFromAttribute(e, "roleid");
+                if (teamId == Guid.Empty || roleId == Guid.Empty) continue;
 
-                if (userId == Guid.Empty || teamId == Guid.Empty || roleId == Guid.Empty) continue;
+                var tri = new TeamRoleInfo
+                {
+                    TeamId = teamId,
+                    TeamName = GetAliasedString(e, "team", "name"),
+                    TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
+                    RoleId = roleId,
+                    RoleName = GetAliasedString(e, "role", "name"),
+                    RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                    IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false
+                };
 
-                var key = $"{teamId:N}|{roleId:N}";
-
-                if (!map.TryGetValue(userId, out var list))
+                if (!teamRolesMap.TryGetValue(teamId, out var list))
                 {
                     list = new List<TeamRoleInfo>();
-                    map[userId] = list;
-                    dedupe[userId] = new HashSet<string>();
+                    teamRolesMap[teamId] = list;
                 }
 
-                if (dedupe[userId].Add(key))
-                {
-                    list.Add(new TeamRoleInfo
-                    {
-                        TeamId = teamId,
-                        TeamName = GetAliasedString(e, "team", "name"),
-                        TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
-                        RoleId = roleId,
-                        RoleName = GetAliasedString(e, "role", "name"),
-                        RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
-                        IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false,
+                if (!list.Any(x => x.RoleId == tri.RoleId))
+                    list.Add(tri);
+            }
 
-                    });
+            // 3) Build userId -> list of team-role rows
+            var userMap = new Dictionary<Guid, List<TeamRoleInfo>>();
+
+            foreach (var m in membership)
+            {
+                if (!teamRolesMap.TryGetValue(m.TeamId, out var roles))
+                    continue;
+
+                if (!userMap.TryGetValue(m.UserId, out var list))
+                {
+                    list = new List<TeamRoleInfo>();
+                    userMap[m.UserId] = list;
+                }
+
+                foreach (var r in roles)
+                {
+                    // Ensure default-team info from membership is reflected
+                    var copy = new TeamRoleInfo
+                    {
+                        TeamId = r.TeamId,
+                        TeamName = r.TeamName ?? m.TeamName,
+                        TeamBusinessUnitName = r.TeamBusinessUnitName ?? m.TeamBu,
+                        RoleId = r.RoleId,
+                        RoleName = r.RoleName,
+                        RoleBusinessUnitName = r.RoleBusinessUnitName,
+                        IsDefaultTeam = m.IsDefault
+                    };
+
+                    list.Add(copy);
                 }
             }
 
-            return map;
+            // De-dupe by TeamId+RoleId per user
+            foreach (var k in userMap.Keys.ToList())
+            {
+                userMap[k] = userMap[k]
+                    .GroupBy(x => $"{x.TeamId:N}|{x.RoleId:N}")
+                    .Select(g => g.First())
+                    .ToList();
+            }
+
+            return userMap;
         }
 
         private static Dictionary<Guid, OwnerTeamInfo> RetrieveOwnerTeams(IOrganizationService svc)
         {
             var qe = new QueryExpression("team")
             {
-                // include isdefault so we can surface it in owner-team rows
-                ColumnSet = new ColumnSet("teamid", "name", "teamtype", "businessunitid", "isdefault"),
+                ColumnSet = new ColumnSet("teamid", "name", "teamtype", "businessunitid"),
                 NoLock = true
             };
             qe.Criteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner
@@ -1650,8 +1942,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 {
                     TeamId = e.Id,
                     Name = e.GetAttributeValue<string>("name"),
-                    BusinessUnitName = GetAliasedString(e, "teambu", "name"),
-                    IsDefaultTeam = e.GetAttributeValue<bool?>("isdefault")
+                    BusinessUnitName = GetAliasedString(e, "teambu", "name")
                 };
             }
 
@@ -1666,10 +1957,10 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 NoLock = true
             };
 
-            // Filter Owner Teams via join
+            // Filter Owner Teams via join (include isdefault so we can detect default teams)
             var teamLink = qe.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
             teamLink.EntityAlias = "team";
-            teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid");
+            teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid", "isdefault");
             teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0);
 
             var teamBuLink = teamLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
@@ -1705,7 +1996,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
                     RoleId = roleId,
                     RoleName = GetAliasedString(e, "role", "name"),
-                    RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name")
+                    RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                    IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false
                 });
             }
 
@@ -1719,6 +2011,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 ColumnSet = new ColumnSet("businessunitid", "name", "parentbusinessunitid"),
                 NoLock = true
             };
+            qe.Orders.Add(new OrderExpression("name", OrderType.Ascending));
 
             var ec = RetrieveAll(svc, qe);
 
@@ -1735,156 +2028,102 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             return list;
         }
-        private static List<string> RetrieveAllBusinessUnitNames(IOrganizationService svc)
-        {
-            var qe = new QueryExpression("businessunit")
-            {
-                ColumnSet = new ColumnSet("name"),
-                NoLock = true
-            };
-            qe.Orders.Add(new OrderExpression("name", OrderType.Ascending));
 
-            var ec = RetrieveAll(svc, qe);
-
-            return ec.Entities
-                .Select(e => e.GetAttributeValue<string>("name"))
-                .Where(n => !string.IsNullOrWhiteSpace(n))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-        }
-
-        private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService svc, Guid businessUnitId)
-        {
-            var qe = new QueryExpression("role")
-            {
-                ColumnSet = new ColumnSet("roleid", "name", "businessunitid"),
-                NoLock = true
-            };
-
-            qe.Criteria.AddCondition("businessunitid", ConditionOperator.Equal, businessUnitId);
-
-            var ec = RetrieveAll(svc, qe);
-
-            return ec.Entities.Select(e => new RoleInfo
-            {
-                RoleId = e.Id,
-                Name = e.GetAttributeValue<string>("name"),
-                BusinessUnitName = null
-            }).ToList();
-        }
-
-        // -----------------------
-        // Build rows
-        // -----------------------
         private static List<MatrixRow> BuildUserRows(
             Dictionary<Guid, UserInfo> users,
             Dictionary<Guid, List<RoleInfo>> directRoles,
             Dictionary<Guid, List<TeamRoleInfo>> teamRoles)
         {
-            var directPairs = new HashSet<(Guid UserId, Guid RoleId)>();
+            var rows = new List<MatrixRow>();
+
+            // Build a duplicate detector: same user + role name assigned both direct and via team
+            var directKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var kvp in directRoles)
-                foreach (var r in kvp.Value)
-                    directPairs.Add((kvp.Key, r.RoleId));
-
-            var teamPairs = new HashSet<(Guid UserId, Guid RoleId)>();
-            foreach (var kvp in teamRoles)
-                foreach (var r in kvp.Value)
-                    teamPairs.Add((kvp.Key, r.RoleId));
-
-            var duplicates = new HashSet<(Guid UserId, Guid RoleId)>(directPairs);
-            duplicates.IntersectWith(teamPairs);
-
-            var rows = new List<MatrixRow>(users.Count * 2);
-
-            foreach (var u in users.Values.OrderBy(x => x.FullName, StringComparer.OrdinalIgnoreCase))
             {
-                var any = false;
-
-                if (directRoles.TryGetValue(u.UserId, out var dr))
+                var userId = kvp.Key;
+                foreach (var r in kvp.Value)
                 {
-                    foreach (var r in dr.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        rows.Add(new MatrixRow
-                        {
-                            UserId = u.UserId,
-                            TeamId = Guid.Empty,
-                            RoleId = r.RoleId,
-
-                            UserFullName = u.FullName,
-                            UserEmail = u.Email,
-                            UserBusinessUnit = u.BusinessUnitName,
-
-                            AssignmentType = "Direct",
-                            IsDefaultTeam = "",
-
-                            TeamName = "",
-                            TeamBusinessUnit = "",
-
-                            RoleName = r.Name,
-                            RoleBusinessUnit = r.BusinessUnitName,
-
-                            Duplicate = duplicates.Contains((u.UserId, r.RoleId))
-                        });
-
-                        any = true;
-                    }
+                    directKeys.Add($"{userId:N}|{r.RoleId:N}");
                 }
+            }
 
-                if (teamRoles.TryGetValue(u.UserId, out var tr))
-                {
-                    foreach (var t in tr.OrderBy(x => x.TeamName, StringComparer.OrdinalIgnoreCase)
-                                        .ThenBy(x => x.RoleName, StringComparer.OrdinalIgnoreCase))
-                    {
-                        rows.Add(new MatrixRow
-                        {
-                            UserId = u.UserId,
-                            TeamId = t.TeamId,
-                            RoleId = t.RoleId,
+            // Direct assignments
+            foreach (var kvp in directRoles)
+            {
+                var userId = kvp.Key;
+                users.TryGetValue(userId, out var u);
 
-                            UserFullName = u.FullName,
-                            UserEmail = u.Email,
-                            UserBusinessUnit = u.BusinessUnitName,
-
-                            AssignmentType = "Team",
-                            IsDefaultTeam = t.IsDefaultTeam ? "Yes" : "No",
-
-                            TeamName = t.TeamName,
-                            TeamBusinessUnit = t.TeamBusinessUnitName,
-
-                            RoleName = t.RoleName,
-                            RoleBusinessUnit = t.RoleBusinessUnitName,
-
-                            Duplicate = duplicates.Contains((u.UserId, t.RoleId))
-                        });
-
-                        any = true;
-                    }
-                }
-
-                if (!any)
+                foreach (var role in kvp.Value)
                 {
                     rows.Add(new MatrixRow
                     {
-                        UserId = u.UserId,
+                        UserId = userId,
+                        RoleId = role.RoleId,
                         TeamId = Guid.Empty,
-                        RoleId = Guid.Empty,
 
-                        UserFullName = u.FullName,
-                        UserEmail = u.Email,
-                        UserBusinessUnit = u.BusinessUnitName,
+                        UserFullName = u?.FullName,
+                        UserEmail = u?.Email,
+                        UserBusinessUnit = u?.BusinessUnitName,
 
-                        AssignmentType = "None",
+                        AssignmentType = "Direct",
 
                         TeamName = "",
                         TeamBusinessUnit = "",
+                        IsDefaultTeam = "",
 
-                        RoleName = "",
-                        RoleBusinessUnit = "",
+                        RoleName = role.Name,
+                        RoleBusinessUnit = role.BusinessUnitName,
 
                         Duplicate = false
                     });
                 }
+            }
+
+            // Team-based assignments (via membership)
+            foreach (var kvp in teamRoles)
+            {
+                var userId = kvp.Key;
+                users.TryGetValue(userId, out var u);
+
+                foreach (var tr in kvp.Value)
+                {
+                    var isDup = directKeys.Contains($"{userId:N}|{tr.RoleId:N}");
+
+                    rows.Add(new MatrixRow
+                    {
+                        UserId = userId,
+                        RoleId = tr.RoleId,
+                        TeamId = tr.TeamId,
+
+                        UserFullName = u?.FullName,
+                        UserEmail = u?.Email,
+                        UserBusinessUnit = u?.BusinessUnitName,
+
+                        AssignmentType = "Team",
+
+                        TeamName = tr.TeamName,
+                        TeamBusinessUnit = tr.TeamBusinessUnitName,
+                        IsDefaultTeam = tr.IsDefaultTeam ? "Yes" : "No",
+
+                        RoleName = tr.RoleName,
+                        RoleBusinessUnit = tr.RoleBusinessUnitName,
+
+                        Duplicate = isDup
+                    });
+                }
+            }
+
+            // Mark duplicates on both rows (direct and team)
+            // For direct rows, if a corresponding team assignment exists, set Duplicate = true.
+            var dupKeys = rows
+                .Where(r => r.AssignmentType == "Team" && r.Duplicate)
+                .Select(r => $"{r.UserId:N}|{r.RoleId:N}")
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var r in rows)
+            {
+                if (r.AssignmentType == "Direct" && dupKeys.Contains($"{r.UserId:N}|{r.RoleId:N}"))
+                    r.Duplicate = true;
             }
 
             return rows;
@@ -1895,62 +2134,31 @@ namespace GM.XrmToolBox.UserRoleMatrix
             List<TeamRoleInfo> teamRoles)
         {
             var rows = new List<MatrixRow>();
-            var teamsWithRoles = new HashSet<Guid>();
 
             foreach (var tr in teamRoles)
             {
-                teamsWithRoles.Add(tr.TeamId);
+                teams.TryGetValue(tr.TeamId, out var t);
 
                 rows.Add(new MatrixRow
                 {
                     UserId = Guid.Empty,
-                    TeamId = tr.TeamId,
                     RoleId = tr.RoleId,
+                    TeamId = tr.TeamId,
 
                     UserFullName = "",
                     UserEmail = "",
                     UserBusinessUnit = "",
 
-                    AssignmentType = "Team",
+                    AssignmentType = "",
 
-                    TeamName = tr.TeamName,
-                    TeamBusinessUnit = tr.TeamBusinessUnitName,
+                    TeamName = tr.TeamName ?? t?.Name,
+                    TeamBusinessUnit = tr.TeamBusinessUnitName ?? t?.BusinessUnitName,
+                    IsDefaultTeam = (tr.IsDefaultTeam ? "Yes" : "No"),
 
                     RoleName = tr.RoleName,
                     RoleBusinessUnit = tr.RoleBusinessUnitName,
 
-                    Duplicate = false,
-                    IsDefaultTeam = tr.IsDefaultTeam ? "Yes" : "No"
-                });
-            }
-
-            // Include Owner Teams with no roles
-            foreach (var t in teams.Values.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase))
-            {
-                if (teamsWithRoles.Contains(t.TeamId)) continue;
-
-                var isDefaultText = t.IsDefaultTeam.HasValue ? (t.IsDefaultTeam.Value ? "Yes" : "No") : "";
-
-                rows.Add(new MatrixRow
-                {
-                    UserId = Guid.Empty,
-                    TeamId = t.TeamId,
-                    RoleId = Guid.Empty,
-
-                    UserFullName = "",
-                    UserEmail = "",
-                    UserBusinessUnit = "",
-
-                    AssignmentType = "Team",
-
-                    TeamName = t.Name,
-                    TeamBusinessUnit = t.BusinessUnitName,
-
-                    RoleName = "",
-                    RoleBusinessUnit = "",
-
-                    Duplicate = false,
-                    IsDefaultTeam = isDefaultText
+                    Duplicate = false
                 });
             }
 
@@ -1958,114 +2166,87 @@ namespace GM.XrmToolBox.UserRoleMatrix
         }
 
         // -----------------------
-        // Paging helper
+        // Helpers
         // -----------------------
+        private static string GetAliasedString(Entity e, string alias, string attributeName)
+        {
+            var key = $"{alias}.{attributeName}";
+            if (!e.Attributes.ContainsKey(key)) return null;
+            var val = e.Attributes[key] as AliasedValue;
+            return val?.Value as string;
+        }
+
+        private static bool? GetAliasedBoolean(Entity e, string alias, string attributeName)
+        {
+            var key = $"{alias}.{attributeName}";
+            if (!e.Attributes.ContainsKey(key)) return null;
+            var val = e.Attributes[key] as AliasedValue;
+            return val?.Value as bool?;
+        }
+
+        private static Guid GetIdFromAttribute(Entity e, string attributeName)
+        {
+            if (e == null || string.IsNullOrWhiteSpace(attributeName))
+                return Guid.Empty;
+
+            // Prefer direct attribute access to correctly handle multiple underlying types
+            if (e.Attributes != null && e.Attributes.TryGetValue(attributeName, out var raw))
+            {
+                // Intersect/relationship entities often return Guid (not EntityReference)
+                if (raw is Guid g) return g;
+
+                if (raw is EntityReference er) return er.Id;
+
+                if (raw is AliasedValue av)
+                {
+                    if (av.Value is Guid ag) return ag;
+                    if (av.Value is EntityReference aer) return aer.Id;
+                }
+            }
+
+            // Fallbacks using typed getters
+            var maybeEr = e.GetAttributeValue<EntityReference>(attributeName);
+            if (maybeEr != null) return maybeEr.Id;
+
+            var maybeGuid = e.GetAttributeValue<Guid?>(attributeName);
+            if (maybeGuid.HasValue) return maybeGuid.Value;
+
+            return Guid.Empty;
+        }
+
         private static EntityCollection RetrieveAll(IOrganizationService svc, QueryExpression qe, int pageSize = 5000)
         {
-            var result = new EntityCollection();
+            if (qe.PageInfo == null)
+                qe.PageInfo = new PagingInfo();
 
-            qe.PageInfo = new PagingInfo
+            qe.PageInfo.Count = pageSize;
+            qe.PageInfo.PageNumber = 1;
+            qe.PageInfo.PagingCookie = null;
+
+            var all = new EntityCollection();
+            bool more = true;
+
+            while (more)
             {
-                PageNumber = 1,
-                Count = pageSize,
-                ReturnTotalRecordCount = false
-            };
+                var resp = svc.RetrieveMultiple(qe);
+                all.Entities.AddRange(resp.Entities);
 
-            while (true)
-            {
-                var ec = svc.RetrieveMultiple(qe);
-                result.Entities.AddRange(ec.Entities);
-
-                if (!ec.MoreRecords) break;
-
-                qe.PageInfo.PageNumber++;
-                qe.PageInfo.PagingCookie = ec.PagingCookie;
+                more = resp.MoreRecords;
+                if (more)
+                {
+                    qe.PageInfo.PageNumber++;
+                    qe.PageInfo.PagingCookie = resp.PagingCookie;
+                }
             }
 
-            return result;
+            return all;
         }
 
-        // -----------------------
-        // Aliased helpers
-        // -----------------------
-        private void HideColumn(string columnName)
+        private void ShowErrorDialog(Exception ex)
         {
-            if (dgvResults.Columns[columnName] != null)
-                dgvResults.Columns[columnName].Visible = false;
+            MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
 
-        private void SetColumnVisible(string columnName, bool visible)
-        {
-            if (dgvResults.Columns[columnName] != null)
-                dgvResults.Columns[columnName].Visible = visible;
-        }
-
-        private void SetFixedColumnWidth(string columnName, int width)
-        {
-            if (dgvResults.Columns[columnName] == null) return;
-
-            var col = dgvResults.Columns[columnName];
-            col.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
-            col.Width = width;
-            col.MinimumWidth = width;
-
-            // Prevent header wrapping for these columns
-            col.HeaderCell.Style.WrapMode = DataGridViewTriState.False;
-        }
-
-
-        private static string GetAliasedString(Entity e, string alias, string attribute)
-        {
-            var key = $"{alias}.{attribute}";
-            if (!e.Attributes.TryGetValue(key, out var obj) || obj == null)
-                return null;
-
-            if (obj is AliasedValue av)
-                return av.Value?.ToString();
-
-            return obj.ToString();
-        }
-
-        private static Guid GetAliasedGuid(Entity e, string alias, string attribute)
-        {
-            var key = $"{alias}.{attribute}";
-            if (!e.Attributes.TryGetValue(key, out var obj) || obj == null)
-                return Guid.Empty;
-
-            if (obj is AliasedValue av)
-            {
-                if (av.Value is Guid g) return g;
-                if (av.Value is EntityReference er) return er.Id;
-            }
-
-            return Guid.Empty;
-        }
-
-        private static Guid GetIdFromAttribute(Entity e, string attributeLogicalName)
-        {
-            if (!e.Attributes.TryGetValue(attributeLogicalName, out var obj) || obj == null)
-                return Guid.Empty;
-
-            if (obj is Guid g) return g;
-            if (obj is EntityReference er) return er.Id;
-
-            return Guid.Empty;
-        }
-        private static bool? GetAliasedBoolean(Entity e, string alias, string attribute)
-        {
-            var key = $"{alias}.{attribute}";
-            if (!e.Attributes.TryGetValue(key, out var obj) || obj == null)
-                return null;
-
-            if (obj is AliasedValue av)
-                obj = av.Value;
-
-            return obj is bool b ? b : (bool?)null;
-        }
-
-        // -----------------------
-        // Models
-        // -----------------------
         private sealed class MatrixRow
         {
             public Guid UserId { get; set; }
@@ -2086,7 +2267,6 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             public bool Duplicate { get; set; }
             public string IsDefaultTeam { get; set; }
-
         }
 
         private sealed class UserInfo
@@ -2117,7 +2297,6 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public Guid TeamId { get; set; }
             public string Name { get; set; }
             public string BusinessUnitName { get; set; }
-            public bool? IsDefaultTeam { get; set; }
         }
 
         private sealed class TeamRoleInfo
@@ -2129,13 +2308,6 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public string RoleName { get; set; }
             public string RoleBusinessUnitName { get; set; }
             public bool IsDefaultTeam { get; set; }
-
-        }
-
-        private sealed class DeleteOpComparer : IEqualityComparer<DeleteOp>
-        {
-            public bool Equals(DeleteOp x, DeleteOp y) => x?.Key == y?.Key;
-            public int GetHashCode(DeleteOp obj) => obj.Key?.GetHashCode() ?? 0;
         }
     }
 
@@ -2179,10 +2351,4 @@ namespace GM.XrmToolBox.UserRoleMatrix
             return null;
         }
     }
-    // ...
 }
-
-
-
-
-

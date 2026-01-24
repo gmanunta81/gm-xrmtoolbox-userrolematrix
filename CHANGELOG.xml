@@ -27,6 +27,12 @@
 			<item>Bugfixes</item>
 		</added>
 	</release>
+	<release version="4.0.0.0" date="2026-01-24">
+		<added>
+			<item>Optimizations</item>
+			<item>Bugfixes</item>
+		</added>
+	</release>
 
 </changelog>
 
