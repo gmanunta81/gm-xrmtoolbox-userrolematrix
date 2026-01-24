@@ -8,7 +8,7 @@
 		<removed />
 	</unreleased>
 
-	<release version="1.0.0" date="2026-01-20">
+	<release version="1.0.0.0" date="2026-01-20">
 		<added>
 			<item>Load users from Dataverse (systemuser)</item>
 			<item>Load direct user roles (systemuserroles)</item>
@@ -19,6 +19,12 @@
 			<item>Dropdown filters: Business Unit, Team, Assignment Type (All/Direct/Team)</item>
 			<item>Export: CSV</item>
 			<item>Export: Excel (.xlsx)</item>
+		</added>
+	</release>
+	<release version="2.0.0.0" date="2026-01-23">
+		<added>
+			<item>Optimizations</item>
+			<item>Bugfixes</item>
 		</added>
 	</release>
 

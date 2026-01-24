@@ -45,6 +45,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
         private readonly BindingSource _bindingSource = new BindingSource();
         private bool _updatingFilters;
         private List<string> _allBusinessUnitNames = new List<string>();
+        // Persist all owner team names (so the Team filter can show teams that may not be present in current view)
+        private List<string> _allTeamNames = new List<string>();
 
 
         // Org setting status
@@ -62,7 +64,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             "Team Business Unit",
             "Role",
             "Role Business Unit",
-            "Duplicated Role in same BU"
+            "Duplicated Role via Teams"
         };
 
         public MyPluginControl()
@@ -338,7 +340,13 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     args.Result = new LoadResult
                     {
                         Rows = rows,
-                        BusinessUnits = allBus
+                        BusinessUnits = allBus,
+                        Teams = teamRoles?.Values.SelectMany(l => l)
+                                    .Select(tr => tr.TeamName)
+                                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                                    .ToList()
                     };
 
                 },
@@ -363,6 +371,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     var result = (LoadResult)e.Result;
                     // Persist business unit names for filters
                     _allBusinessUnitNames = result.BusinessUnits ?? new List<string>();
+                    // Persist team names for Team filter
+                    _allTeamNames = result.Teams ?? new List<string>();
 
                     BindRows(result.Rows ?? new List<MatrixRow>());
                     PopulateDropdownFiltersFromTable();
@@ -401,7 +411,13 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     args.Result = new LoadResult
                     {
                         Rows = rows,
-                        BusinessUnits = allBus
+                        BusinessUnits = allBus,
+                        Teams = teams?.Values
+                                    .Select(t => t.Name)
+                                    .Where(n => !string.IsNullOrWhiteSpace(n))
+                                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                                    .ToList() ?? new List<string>()
                     };
 
                 },
@@ -425,6 +441,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
                     var result = (LoadResult)e.Result;
                     _allBusinessUnitNames = result.BusinessUnits ?? new List<string>();
+                    _allTeamNames = result.Teams ?? new List<string>();
 
                     BindRows(result.Rows);
                     PopulateDropdownFiltersFromTable();
@@ -1107,6 +1124,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
         {
             public List<MatrixRow> Rows { get; set; }
             public List<string> BusinessUnits { get; set; }
+            // added to carry team names back to UI thread
+            public List<string> Teams { get; set; }
         }
 
 
@@ -1253,10 +1272,14 @@ namespace GM.XrmToolBox.UserRoleMatrix
                  .ToList();
 
 
-                var teams = _table.AsEnumerable()
+                var teamsInTable = _table.AsEnumerable()
                     .Select(r => r.Field<string>("Team"))
                     .Where(s => !string.IsNullOrWhiteSpace(s))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var teams = (_allTeamNames ?? new List<string>())
+                    .Union(teamsInTable, StringComparer.OrdinalIgnoreCase)
                     .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
