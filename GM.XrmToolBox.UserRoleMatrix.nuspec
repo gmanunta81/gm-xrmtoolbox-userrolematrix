@@ -5,7 +5,7 @@
     <id>GM.XrmToolBox.UserRoleMatrix</id>
 
     <!-- IMPORTANT: must match assembly version -->
-    <version>3.0.0.0</version>
+    <version>4.0.0.0</version>
 
     <title>User Role Matrix</title>
     <authors>Giovanni Manunta</authors>
@@ -13,14 +13,14 @@
 
     <!-- REQUIRED by validation -->
     <projectUrl>https://github.com/gmanunta81/gm-xrmtoolbox-userrolematrix</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/gmanunta81/gm-xrmtoolbox-userrolematrix/main/assets/icon.png</iconUrl>
+    <iconUrl>https://raw.githubusercontent.com/gmanunta81/gm-xrmtoolbox-userrolematrix/master/assets/icon.png</iconUrl>
 
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <description>XrmToolBox plugin to analyze Users and Owner Teams Security Roles (direct + via teams), with filters, duplicates, add/remove role assignments, export.</description>
     <summary>User and Owner Team role matrix for Dataverse / Dynamics 365.</summary>
 
     <releaseNotes>
-        3.0.0.0 - Initial release.
+        4.0.0.0 - Initial release.
         - Load Users &amp; Roles (Direct + via Owner Teams)
         - Load Owner Teams Roles
         - Modernized BU setting status (RecomputeOwnershipAcrossBusinessUnits)
