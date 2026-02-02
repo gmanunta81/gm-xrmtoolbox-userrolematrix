@@ -33,7 +33,7 @@
 
     <!-- REQUIRED: dependency must be XrmToolBox (not XrmToolBoxPackage) -->
     <dependencies>
-      <dependency id="XrmToolBox" version="1.2026.1.0" />
+      <dependency id="XrmToolBox" version="1.2025.10.74" />
     </dependencies>
   </metadata>
 
