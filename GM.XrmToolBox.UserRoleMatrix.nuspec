@@ -5,7 +5,7 @@
     <id>GM.XrmToolBox.UserRoleMatrix</id>
 
     <!-- IMPORTANT: must match assembly version -->
-    <version>4.0.0.0</version>
+    <version>5.0.0.1</version>
 
     <title>User Role Matrix</title>
     <authors>Giovanni Manunta</authors>
@@ -20,7 +20,7 @@
     <summary>User and Owner Team role matrix for Dataverse / Dynamics 365.</summary>
 
     <releaseNotes>
-        4.0.0.0 - Initial release.
+        5.0.0.1 - Initial release.
         - Load Users &amp; Roles (Direct + via Owner Teams)
         - Load Owner Teams Roles
         - Modernized BU setting status (RecomputeOwnershipAcrossBusinessUnits)
