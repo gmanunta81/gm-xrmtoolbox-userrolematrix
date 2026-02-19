@@ -8,17 +8,6 @@ XrmToolBox plugin for Microsoft Dataverse / Dynamics 365 that lists **users and 
 - Filters (Business Unit, Team, Assignment Type)
 - Export to CSV / Excel
 
-> Repo: `gm-xrmtoolbox-userrolematrix`  
-> Assembly + NuGet Id: `GM.XrmToolBox.UserRoleMatrix`  
-> Tool display name: choose one:
-> - `GM.XrmToolBox.UserRoleMatrix`
-> - `User Role Matrix`
-
-## CI Status
-
-![CI](https://github.com/<YOUR_GITHUB_USERNAME>/gm-xrmtoolbox-userrolematrix/actions/workflows/ci.yml/badge.svg)
-
-> Replace `<YOUR_GITHUB_USERNAME>` with your GitHub username.
 
 ---
 
