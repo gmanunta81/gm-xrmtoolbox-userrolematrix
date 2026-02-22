@@ -902,6 +902,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 _cbUser.Left = 150;
                 _cbUser.Top = 16;
                 _cbUser.Width = 370;
+                _cbUser.SelectedIndexChanged += CbUser_SelectedIndexChanged;
 
                 ConfigureCombo(_cbBusinessUnit);
                 _cbBusinessUnit.Left = 150;
@@ -1042,6 +1043,21 @@ namespace GM.XrmToolBox.UserRoleMatrix
                         _cbRole.Enabled = true;
                     }));
                 }
+            }
+
+            private void CbUser_SelectedIndexChanged(object sender, EventArgs e)
+            {
+                if (_enableAcrossBuEnabled) return;
+
+                var userItem = _cbUser.SelectedItem as ComboItem;
+                if (userItem == null || userItem.Id == Guid.Empty) return;
+
+                var user = _users.FirstOrDefault(u => u.UserId == userItem.Id);
+                if (user == null || user.BusinessUnitId == Guid.Empty) return;
+
+                _cbBusinessUnit.Items.Clear();
+                _cbBusinessUnit.Items.Add(new ComboItem(user.BusinessUnitId, user.BusinessUnitName ?? ""));
+                _cbBusinessUnit.SelectedIndex = 0;
             }
 
             private void AddClicked()
@@ -1719,11 +1735,13 @@ namespace GM.XrmToolBox.UserRoleMatrix
             var users = new Dictionary<Guid, UserInfo>();
             foreach (var e in ec.Entities)
             {
+                var buRef = e.GetAttributeValue<EntityReference>("businessunitid");
                 users[e.Id] = new UserInfo
                 {
                     UserId = e.Id,
                     FullName = e.GetAttributeValue<string>("fullname"),
                     Email = e.GetAttributeValue<string>("internalemailaddress"),
+                    BusinessUnitId = buRef?.Id ?? Guid.Empty,
                     BusinessUnitName = GetAliasedString(e, "bu", "name"),
                     IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false
                 };
@@ -2274,6 +2292,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public Guid UserId { get; set; }
             public string FullName { get; set; }
             public string Email { get; set; }
+            public Guid BusinessUnitId { get; set; }
             public string BusinessUnitName { get; set; }
             public bool IsDisabled { get; set; }
         }

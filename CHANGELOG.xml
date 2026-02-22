@@ -33,6 +33,11 @@
 			<item>Bugfixes</item>
 		</added>
 	</release>
+	<release version="5.0.0.2" date="2026-01-25">
+		<fixed>
+			<item>Add User Role failed for users outside the root Business Unit when Modern Business Unit (EnableOwnershipAcrossBusinessUnits) was disabled. The role is now assigned using the user's own Business Unit instead of the root BU.</item>
+		</fixed>
+	</release>
 
 </changelog>
 
