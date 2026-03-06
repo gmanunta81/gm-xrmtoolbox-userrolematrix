@@ -1,6 +1,7 @@
 ﻿using ClosedXML.Excel;
 using DocumentFormat.OpenXml.Spreadsheet;
 using McTools.Xrm.Connection;
+using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
 using Microsoft.Xrm.Sdk.Query;
@@ -15,7 +16,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
-using System.Windows.Controls;
 using System.Windows.Forms;
 using System.Xml.Linq;
 using XrmToolBox.Extensibility;
@@ -46,6 +46,89 @@ namespace GM.XrmToolBox.UserRoleMatrix
         private List<string> _allBusinessUnitNames = new List<string>();
         private List<string> _allTeamNames = new List<string>();
         private bool _internalSelectAllChange;
+
+
+        // -----------------------
+        // Views filter (SystemUser / Team)
+        // -----------------------
+        private enum ViewSource
+        {
+            System,
+            Personal
+        }
+
+        private readonly struct ViewKey : IEquatable<ViewKey>
+        {
+            public ViewSource Source { get; }
+            public Guid Id { get; }
+
+            public bool IsAll => Id == Guid.Empty;
+
+            public ViewKey(ViewSource source, Guid id)
+            {
+                Source = source;
+                Id = id;
+            }
+
+            public static ViewKey All => new ViewKey(ViewSource.System, Guid.Empty);
+
+            public bool Equals(ViewKey other)
+            {
+                if (IsAll && other.IsAll) return true;
+                if (IsAll || other.IsAll) return false;
+                return Source == other.Source && Id == other.Id;
+            }
+
+            public override bool Equals(object obj) => obj is ViewKey other && Equals(other);
+
+            public override int GetHashCode()
+            {
+                if (IsAll) return 0;
+                unchecked
+                {
+                    int hash = 17;
+                    hash = (hash * 23) + Source.GetHashCode();
+                    hash = (hash * 23) + Id.GetHashCode();
+                    return hash;
+                }
+            }
+
+            public override string ToString() => IsAll ? "All" : $"{Source}:{Id:N}";
+        }
+
+        private sealed class ViewDefinition
+        {
+            public ViewSource Source { get; set; }
+            public Guid Id { get; set; }
+            public string Name { get; set; }
+            public string EntityLogicalName { get; set; }
+            public string FetchXml { get; set; }
+
+            public ViewKey Key => Id == Guid.Empty ? ViewKey.All : new ViewKey(Source, Id);
+
+            public string DisplayName
+                => Source == ViewSource.System ? $"[System] {Name}" : $"[Personal] {Name}";
+        }
+
+        private sealed class ViewComboItem
+        {
+            public ViewKey Key { get; }
+            public string Text { get; }
+
+            public ViewComboItem(ViewKey key, string text)
+            {
+                Key = key;
+                Text = text;
+            }
+
+            public override string ToString() => Text;
+
+            public static ViewComboItem All => new ViewComboItem(ViewKey.All, "All");
+        }
+
+        private string _currentViewEntityLogicalName = null; // "systemuser" or "team"
+        private ViewKey _selectedSystemUserView = ViewKey.All;
+        private ViewKey _selectedTeamView = ViewKey.All;
 
         // Persist all owner team names (so Team dropdown can show all teams, not just those in grid)
         private OrgSettingStatus _orgSettingStatus = OrgSettingStatus.Unknown();
@@ -109,6 +192,21 @@ namespace GM.XrmToolBox.UserRoleMatrix
             tsmiExportCsv.Click += (s, e) => ExportCsv();
             tsmiExportExcel.Click += (s, e) => ExportExcel();
 
+            // Views filter (reload on selection)
+            tscView.SelectedIndexChanged += (s, e) =>
+            {
+                if (_updatingFilters) return;
+
+                PersistSelectedViewKeyFromUI();
+
+                if (Service == null) return;
+
+                if (_currentMode == ModeSystemUser)
+                    ExecuteMethod(LoadUsersAndRoles);
+                else if (_currentMode == ModeTeam)
+                    ExecuteMethod(LoadOwnerTeamsRoles);
+            };
+
             // Filters/search
             tscBusinessUnit.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
             tscTeam.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
@@ -145,6 +243,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
             tsbAddUserRole.Enabled = connected;
             tsbDel.Enabled = connected;
             tsddExport.Enabled = connected;
+            tslView.Enabled = connected;
+            tscView.Enabled = connected;
         }
 
         private void UpdateActionButtonsEnabledState()
@@ -164,6 +264,10 @@ namespace GM.XrmToolBox.UserRoleMatrix
             _updatingFilters = true;
             try
             {
+                tscView.Items.Clear();
+                tscView.Items.Add(ViewComboItem.All);
+                tscView.SelectedIndex = 0;
+
                 tscBusinessUnit.Items.Clear();
                 tscBusinessUnit.Items.Add("All");
                 tscBusinessUnit.SelectedIndex = 0;
@@ -186,7 +290,85 @@ namespace GM.XrmToolBox.UserRoleMatrix
             }
         }
 
-        private void UpdateCountLabel(int filtered, int total)
+        
+        // -----------------------
+        // Views (SavedQuery/UserQuery) dropdown
+        // -----------------------
+        private void PersistSelectedViewKeyFromUI()
+        {
+            var item = tscView.SelectedItem as ViewComboItem ?? ViewComboItem.All;
+            var key = item.Key;
+
+            // Prefer the currently loaded view entity; fallback to current mode.
+            var entity = _currentViewEntityLogicalName;
+            if (string.IsNullOrWhiteSpace(entity))
+                entity = _currentMode;
+
+            if (string.Equals(entity, ModeSystemUser, StringComparison.OrdinalIgnoreCase))
+            {
+                _selectedSystemUserView = key;
+            }
+            else if (string.Equals(entity, ModeTeam, StringComparison.OrdinalIgnoreCase))
+            {
+                _selectedTeamView = key;
+            }
+            else
+            {
+                // Default: store as systemuser view
+                _selectedSystemUserView = key;
+            }
+        }
+
+        private ViewKey GetPersistedViewKeyForEntity(string entityLogicalName)
+        {
+            if (string.Equals(entityLogicalName, ModeSystemUser, StringComparison.OrdinalIgnoreCase))
+                return _selectedSystemUserView;
+
+            if (string.Equals(entityLogicalName, ModeTeam, StringComparison.OrdinalIgnoreCase))
+                return _selectedTeamView;
+
+            return ViewKey.All;
+        }
+
+        private void PopulateViewsDropdown(string entityLogicalName, List<ViewDefinition> views)
+        {
+            _currentViewEntityLogicalName = entityLogicalName;
+
+            _updatingFilters = true;
+            try
+            {
+                tscView.Items.Clear();
+                tscView.Items.Add(ViewComboItem.All);
+
+                if (views != null && views.Count > 0)
+                {
+                    foreach (var v in views
+                        .Where(v => v != null && !string.IsNullOrWhiteSpace(v.Name))
+                        .OrderBy(v => v.Source)
+                        .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase))
+                    {
+                        tscView.Items.Add(new ViewComboItem(v.Key, v.DisplayName));
+                    }
+                }
+
+                // restore selection (if present)
+                var wanted = GetPersistedViewKeyForEntity(entityLogicalName);
+                var match = tscView.Items
+                    .OfType<ViewComboItem>()
+                    .FirstOrDefault(i => i.Key.Equals(wanted));
+
+                if (match != null)
+                    tscView.SelectedItem = match;
+                else
+                    tscView.SelectedIndex = 0;
+            }
+            finally
+            {
+                _updatingFilters = false;
+            }
+        }
+
+private void UpdateCountLabel(int filtered, int total)
         {
             var settingText = _orgSettingStatus.IsKnown
                 ? (_orgSettingStatus.EnableOwnershipAcrossBusinessUnits ? "EnableOwnershipAcrossBUs: ON" : "EnableOwnershipAcrossBUs: OFF")
@@ -379,24 +561,42 @@ namespace GM.XrmToolBox.UserRoleMatrix
         // -----------------------
         // Feature #2: Load Users & Roles (systemuser mode)
         // -----------------------
+        
         private void LoadUsersAndRoles()
         {
             tsbLoadUsersRoles.Enabled = false;
             tsbLoadOwnerTeamsRoles.Enabled = false;
+
+            var selectedViewKey = _selectedSystemUserView;
 
             WorkAsync(new WorkAsyncInfo
             {
                 Message = "Loading users and roles...",
                 Work = (worker, args) =>
                 {
+                    worker.ReportProgress(0, "Retrieving SystemUser views...");
+                    var views = RetrieveViewsForEntity(Service, "systemuser");
+
+                    IReadOnlyCollection<Guid> userIdsFilter = null;
+
+                    if (!selectedViewKey.IsAll)
+                    {
+                        var selectedView = views.FirstOrDefault(v => v.Key.Equals(selectedViewKey));
+                        if (selectedView != null)
+                        {
+                            worker.ReportProgress(0, $"Executing view: {selectedView.Name}...");
+                            userIdsFilter = RetrieveRecordIdsFromView(Service, "systemuser", selectedView);
+                        }
+                    }
+
                     worker.ReportProgress(0, "Retrieving users...");
-                    var users = RetrieveAllUsers(Service);
+                    var users = RetrieveAllUsers(Service, userIdsFilter);
 
                     worker.ReportProgress(0, "Retrieving direct user roles...");
-                    var directRoles = RetrieveDirectUserRoles(Service);
+                    var directRoles = RetrieveDirectUserRoles(Service, userIdsFilter);
 
                     worker.ReportProgress(0, "Retrieving roles via Owner Teams...");
-                    var teamRoles = RetrieveTeamUserRoles(Service);
+                    var teamRoles = RetrieveTeamUserRoles(Service, userIdsFilter);
 
                     worker.ReportProgress(0, "Building rows (duplicates)...");
                     var rows = BuildUserRows(users, directRoles, teamRoles);
@@ -411,7 +611,9 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     {
                         Rows = rows,
                         BusinessUnits = allBus,
-                        Teams = allTeams
+                        Teams = allTeams,
+                        Views = views,
+                        ViewsEntityLogicalName = "systemuser"
                     };
                 },
                 ProgressChanged = e =>
@@ -433,6 +635,10 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     _currentMode = ModeSystemUser;
 
                     var result = (LoadResult)e.Result;
+
+                    // Views dropdown (SystemUser)
+                    PopulateViewsDropdown(result.ViewsEntityLogicalName, result.Views);
+
                     // Persist business unit names for filters
                     _allBusinessUnitNames = result.BusinessUnits ?? new List<string>();
                     // Persist team names for Team filter
@@ -447,6 +653,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             });
         }
 
+
         // -----------------------
         // Feature #2: Load Owner Teams Roles (team mode)
         // -----------------------
@@ -455,16 +662,33 @@ namespace GM.XrmToolBox.UserRoleMatrix
             tsbLoadUsersRoles.Enabled = false;
             tsbLoadOwnerTeamsRoles.Enabled = false;
 
+            var selectedViewKey = _selectedTeamView;
+
             WorkAsync(new WorkAsyncInfo
             {
                 Message = "Loading Owner Teams and their roles...",
                 Work = (worker, args) =>
                 {
+                    worker.ReportProgress(0, "Retrieving Team views...");
+                    var views = RetrieveViewsForEntity(Service, "team");
+
+                    IReadOnlyCollection<Guid> teamIdsFilter = null;
+
+                    if (!selectedViewKey.IsAll)
+                    {
+                        var selectedView = views.FirstOrDefault(v => v.Key.Equals(selectedViewKey));
+                        if (selectedView != null)
+                        {
+                            worker.ReportProgress(0, $"Executing view: {selectedView.Name}...");
+                            teamIdsFilter = RetrieveRecordIdsFromView(Service, "team", selectedView);
+                        }
+                    }
+
                     worker.ReportProgress(0, "Retrieving Owner Teams...");
-                    var teams = RetrieveOwnerTeams(Service);
+                    var teams = RetrieveOwnerTeams(Service, teamIdsFilter);
 
                     worker.ReportProgress(0, "Retrieving Owner Team roles...");
-                    var teamRoles = RetrieveOwnerTeamRoles(Service);
+                    var teamRoles = RetrieveOwnerTeamRoles(Service, teamIdsFilter);
 
                     worker.ReportProgress(0, "Building rows...");
                     var rows = BuildOwnerTeamRows(teams, teamRoles);
@@ -472,16 +696,16 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     worker.ReportProgress(0, "Retrieving all Business Units...");
                     var allBus = RetrieveAllBusinessUnitNames(Service);
 
+                    worker.ReportProgress(0, "Retrieving all Owner Teams...");
+                    var allTeams = RetrieveAllOwnerTeamNames(Service);
+
                     args.Result = new LoadResult
                     {
                         Rows = rows,
                         BusinessUnits = allBus,
-                        Teams = teams?.Values
-                                    .Select(t => t.Name)
-                                    .Where(n => !string.IsNullOrWhiteSpace(n))
-                                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
-                                    .ToList()
+                        Teams = allTeams,
+                        Views = views,
+                        ViewsEntityLogicalName = "team"
                     };
                 },
                 ProgressChanged = e =>
@@ -503,10 +727,14 @@ namespace GM.XrmToolBox.UserRoleMatrix
                     _currentMode = ModeTeam;
 
                     var result = (LoadResult)e.Result;
+
+                    // Views dropdown (Team)
+                    PopulateViewsDropdown(result.ViewsEntityLogicalName, result.Views);
+
                     _allBusinessUnitNames = result.BusinessUnits ?? new List<string>();
                     _allTeamNames = result.Teams ?? new List<string>();
 
-                    BindRows(result.Rows);
+                    BindRows(result.Rows ?? new List<MatrixRow>());
                     PopulateDropdownFiltersFromTable();
                     ApplyAllFilters();
 
@@ -515,10 +743,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             });
         }
 
-        // -----------------------
-        // Feature #3: Delete Selected (DisassociateRequest) - now fast via ExecuteMultiple
-        // -----------------------
-        private void DeleteSelectedAssignments()
+private void DeleteSelectedAssignments()
         {
             if (_table == null || _table.Rows.Count == 0 || dgvResults.Rows.Count == 0)
             {
@@ -1274,6 +1499,10 @@ namespace GM.XrmToolBox.UserRoleMatrix
             public List<string> BusinessUnits { get; set; }
             // added to carry team names back to UI thread
             public List<string> Teams { get; set; }
+
+            // Views for the current entity (systemuser / team)
+            public List<ViewDefinition> Views { get; set; }
+            public string ViewsEntityLogicalName { get; set; }
         }
 
         // -----------------------
@@ -1689,7 +1918,129 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 .ToList();
         }
 
-        private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService svc, Guid businessUnitId)
+        
+        // -----------------------
+        // Views (SavedQuery/UserQuery) + execution (FetchXml -> QueryExpression)
+        // -----------------------
+        private static List<ViewDefinition> RetrieveViewsForEntity(IOrganizationService svc, string entityLogicalName)
+        {
+            var views = new List<ViewDefinition>();
+
+            // System views (savedquery)
+            var qeSys = new QueryExpression("savedquery")
+            {
+                ColumnSet = new ColumnSet("savedqueryid", "name", "fetchxml", "returnedtypecode", "statecode"),
+                NoLock = true
+            };
+            qeSys.Criteria.AddCondition("returnedtypecode", ConditionOperator.Equal, entityLogicalName);
+            qeSys.Criteria.AddCondition("statecode", ConditionOperator.Equal, 0); // Active
+            qeSys.Orders.Add(new OrderExpression("name", OrderType.Ascending));
+
+            var sys = RetrieveAll(svc, qeSys);
+
+            foreach (var e in sys.Entities)
+            {
+                var name = e.GetAttributeValue<string>("name");
+                var fetch = e.GetAttributeValue<string>("fetchxml");
+
+                if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(fetch))
+                    continue;
+
+                views.Add(new ViewDefinition
+                {
+                    Source = ViewSource.System,
+                    Id = e.Id,
+                    Name = name,
+                    EntityLogicalName = entityLogicalName,
+                    FetchXml = fetch
+                });
+            }
+
+            // Personal views (userquery)
+            var qeUser = new QueryExpression("userquery")
+            {
+                ColumnSet = new ColumnSet("userqueryid", "name", "fetchxml", "returnedtypecode", "statecode"),
+                NoLock = true
+            };
+            qeUser.Criteria.AddCondition("returnedtypecode", ConditionOperator.Equal, entityLogicalName);
+            qeUser.Criteria.AddCondition("statecode", ConditionOperator.Equal, 0); // Active
+            qeUser.Orders.Add(new OrderExpression("name", OrderType.Ascending));
+
+            var usr = RetrieveAll(svc, qeUser);
+
+            foreach (var e in usr.Entities)
+            {
+                var name = e.GetAttributeValue<string>("name");
+                var fetch = e.GetAttributeValue<string>("fetchxml");
+
+                if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(fetch))
+                    continue;
+
+                views.Add(new ViewDefinition
+                {
+                    Source = ViewSource.Personal,
+                    Id = e.Id,
+                    Name = name,
+                    EntityLogicalName = entityLogicalName,
+                    FetchXml = fetch
+                });
+            }
+
+            return views;
+        }
+
+        private static string GetPrimaryIdAttributeName(string entityLogicalName)
+        {
+            if (string.Equals(entityLogicalName, "systemuser", StringComparison.OrdinalIgnoreCase))
+                return "systemuserid";
+
+            if (string.Equals(entityLogicalName, "team", StringComparison.OrdinalIgnoreCase))
+                return "teamid";
+
+            // Best-effort fallback (works for most entities)
+            return entityLogicalName + "id";
+        }
+
+        private static IReadOnlyCollection<Guid> RetrieveRecordIdsFromView(IOrganizationService svc, string entityLogicalName, ViewDefinition view)
+        {
+            if (view == null || string.IsNullOrWhiteSpace(view.FetchXml))
+                return Array.Empty<Guid>();
+
+            // Convert FetchXML stored in the View to QueryExpression (no hardcoded FetchXML in the tool)
+            var req = new FetchXmlToQueryExpressionRequest
+            {
+                FetchXml = view.FetchXml
+            };
+
+            var resp = (FetchXmlToQueryExpressionResponse)svc.Execute(req);
+            var qe = resp.Query;
+
+            qe.NoLock = true;
+            qe.ColumnSet = new ColumnSet(GetPrimaryIdAttributeName(entityLogicalName));
+
+            var ec = RetrieveAll(svc, qe);
+
+            return ec.Entities
+                .Select(e => e.Id)
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList();
+        }
+
+        private static IEnumerable<Guid[]> ChunkGuids(IEnumerable<Guid> ids, int chunkSize)
+        {
+            if (ids == null) yield break;
+
+            var list = ids
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList();
+
+            for (int i = 0; i < list.Count; i += chunkSize)
+                yield return list.Skip(i).Take(chunkSize).ToArray();
+        }
+
+private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService svc, Guid businessUnitId)
         {
             var qe = new QueryExpression("role")
             {
@@ -1718,180 +2069,340 @@ namespace GM.XrmToolBox.UserRoleMatrix
             return roles;
         }
 
-        private static Dictionary<Guid, UserInfo> RetrieveAllUsers(IOrganizationService svc)
+        
+        private static Dictionary<Guid, UserInfo> RetrieveAllUsers(IOrganizationService svc, IReadOnlyCollection<Guid> userIdsFilter = null)
         {
-            var qe = new QueryExpression("systemuser")
-            {
-                ColumnSet = new ColumnSet("systemuserid", "fullname", "internalemailaddress", "isdisabled", "businessunitid"),
-                NoLock = true
-            };
-
-            var buLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-            buLink.EntityAlias = "bu";
-            buLink.Columns = new ColumnSet("name");
-
-            var ec = RetrieveAll(svc, qe);
-
             var users = new Dictionary<Guid, UserInfo>();
-            foreach (var e in ec.Entities)
+
+            // If a view filter is provided, query users in chunks
+            if (userIdsFilter != null)
             {
-                var buRef = e.GetAttributeValue<EntityReference>("businessunitid");
-                users[e.Id] = new UserInfo
+                var ids = userIdsFilter.Where(id => id != Guid.Empty).Distinct().ToList();
+                if (ids.Count == 0)
+                    return users;
+
+                const int chunkSize = 500;
+
+                foreach (var chunk in ChunkGuids(ids, chunkSize))
                 {
-                    UserId = e.Id,
-                    FullName = e.GetAttributeValue<string>("fullname"),
-                    Email = e.GetAttributeValue<string>("internalemailaddress"),
-                    BusinessUnitId = buRef?.Id ?? Guid.Empty,
-                    BusinessUnitName = GetAliasedString(e, "bu", "name"),
-                    IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false
-                };
-            }
+                    var qe = new QueryExpression("systemuser")
+                    {
+                        ColumnSet = new ColumnSet("systemuserid", "fullname", "internalemailaddress", "isdisabled", "businessunitid"),
+                        NoLock = true
+                    };
 
-            return users;
-        }
+                    qe.Criteria.AddCondition("systemuserid", ConditionOperator.In, chunk.Cast<object>().ToArray());
 
-        private static Dictionary<Guid, List<RoleInfo>> RetrieveDirectUserRoles(IOrganizationService svc)
-        {
-            // systemuserroles: intersect entity systemuser <-> role
-            var qe = new QueryExpression("systemuserroles")
-            {
-                ColumnSet = new ColumnSet("systemuserid", "roleid"),
-                NoLock = true
-            };
+                    var buLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                    buLink.EntityAlias = "bu";
+                    buLink.Columns = new ColumnSet("name");
 
-            var roleLink = qe.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
-            roleLink.EntityAlias = "role";
-            roleLink.Columns = new ColumnSet("name", "businessunitid");
+                    var ec = RetrieveAll(svc, qe);
 
-            var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-            roleBuLink.EntityAlias = "rolebu";
-            roleBuLink.Columns = new ColumnSet("name");
-
-            var ec = RetrieveAll(svc, qe);
-
-            var dict = new Dictionary<Guid, List<RoleInfo>>();
-
-            foreach (var e in ec.Entities)
-            {
-                var userId = GetIdFromAttribute(e, "systemuserid");
-                var roleId = GetIdFromAttribute(e, "roleid");
-
-                if (userId == Guid.Empty || roleId == Guid.Empty) continue;
-
-                var role = new RoleInfo
-                {
-                    RoleId = roleId,
-                    Name = GetAliasedString(e, "role", "name"),
-                    BusinessUnitName = GetAliasedString(e, "rolebu", "name")
-                };
-
-                if (!dict.TryGetValue(userId, out var list))
-                {
-                    list = new List<RoleInfo>();
-                    dict[userId] = list;
+                    foreach (var e in ec.Entities)
+                    {
+                        var buRef = e.GetAttributeValue<EntityReference>("businessunitid");
+                        users[e.Id] = new UserInfo
+                        {
+                            UserId = e.Id,
+                            FullName = e.GetAttributeValue<string>("fullname"),
+                            Email = e.GetAttributeValue<string>("internalemailaddress"),
+                            BusinessUnitId = buRef?.Id ?? Guid.Empty,
+                            BusinessUnitName = GetAliasedString(e, "bu", "name"),
+                            IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false
+                        };
+                    }
                 }
 
-                // de-dupe by role id
-                if (!list.Any(r => r.RoleId == role.RoleId))
-                    list.Add(role);
+                return users;
             }
 
-            return dict;
+            // No filter => load all users
+            {
+                var qe = new QueryExpression("systemuser")
+                {
+                    ColumnSet = new ColumnSet("systemuserid", "fullname", "internalemailaddress", "isdisabled", "businessunitid"),
+                    NoLock = true
+                };
+
+                var buLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                buLink.EntityAlias = "bu";
+                buLink.Columns = new ColumnSet("name");
+
+                var ec = RetrieveAll(svc, qe);
+
+                foreach (var e in ec.Entities)
+                {
+                    var buRef = e.GetAttributeValue<EntityReference>("businessunitid");
+                    users[e.Id] = new UserInfo
+                    {
+                        UserId = e.Id,
+                        FullName = e.GetAttributeValue<string>("fullname"),
+                        Email = e.GetAttributeValue<string>("internalemailaddress"),
+                        BusinessUnitId = buRef?.Id ?? Guid.Empty,
+                        BusinessUnitName = GetAliasedString(e, "bu", "name"),
+                        IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false
+                    };
+                }
+
+                return users;
+            }
         }
 
-        private static Dictionary<Guid, List<TeamRoleInfo>> RetrieveTeamUserRoles(IOrganizationService svc)
+
+        private static Dictionary<Guid, List<RoleInfo>> RetrieveDirectUserRoles(IOrganizationService svc, IReadOnlyCollection<Guid> userIdsFilter = null)
+        {
+            // systemuserroles: intersect entity systemuser <-> role
+            var dict = new Dictionary<Guid, List<RoleInfo>>();
+
+            // If a view filter is provided, query systemuserroles in chunks
+            if (userIdsFilter != null)
+            {
+                var ids = userIdsFilter.Where(id => id != Guid.Empty).Distinct().ToList();
+                if (ids.Count == 0)
+                    return dict;
+
+                const int chunkSize = 500;
+
+                foreach (var chunk in ChunkGuids(ids, chunkSize))
+                {
+                    var qe = new QueryExpression("systemuserroles")
+                    {
+                        ColumnSet = new ColumnSet("systemuserid", "roleid"),
+                        NoLock = true
+                    };
+                    qe.Criteria.AddCondition("systemuserid", ConditionOperator.In, chunk.Cast<object>().ToArray());
+
+                    var roleLink = qe.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
+                    roleLink.EntityAlias = "role";
+                    roleLink.Columns = new ColumnSet("name", "businessunitid");
+
+                    var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                    roleBuLink.EntityAlias = "rolebu";
+                    roleBuLink.Columns = new ColumnSet("name");
+
+                    var ec = RetrieveAll(svc, qe);
+
+                    foreach (var e in ec.Entities)
+                    {
+                        var userId = GetIdFromAttribute(e, "systemuserid");
+                        var roleId = GetIdFromAttribute(e, "roleid");
+
+                        if (userId == Guid.Empty || roleId == Guid.Empty) continue;
+
+                        var role = new RoleInfo
+                        {
+                            RoleId = roleId,
+                            Name = GetAliasedString(e, "role", "name"),
+                            BusinessUnitName = GetAliasedString(e, "rolebu", "name")
+                        };
+
+                        if (!dict.TryGetValue(userId, out var list))
+                        {
+                            list = new List<RoleInfo>();
+                            dict[userId] = list;
+                        }
+
+                        if (!list.Any(r => r.RoleId == role.RoleId))
+                            list.Add(role);
+                    }
+                }
+
+                return dict;
+            }
+
+            // No filter => load all direct assignments
+            {
+                var qe = new QueryExpression("systemuserroles")
+                {
+                    ColumnSet = new ColumnSet("systemuserid", "roleid"),
+                    NoLock = true
+                };
+
+                var roleLink = qe.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
+                roleLink.EntityAlias = "role";
+                roleLink.Columns = new ColumnSet("name", "businessunitid");
+
+                var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                roleBuLink.EntityAlias = "rolebu";
+                roleBuLink.Columns = new ColumnSet("name");
+
+                var ec = RetrieveAll(svc, qe);
+
+                foreach (var e in ec.Entities)
+                {
+                    var userId = GetIdFromAttribute(e, "systemuserid");
+                    var roleId = GetIdFromAttribute(e, "roleid");
+
+                    if (userId == Guid.Empty || roleId == Guid.Empty) continue;
+
+                    var role = new RoleInfo
+                    {
+                        RoleId = roleId,
+                        Name = GetAliasedString(e, "role", "name"),
+                        BusinessUnitName = GetAliasedString(e, "rolebu", "name")
+                    };
+
+                    if (!dict.TryGetValue(userId, out var list))
+                    {
+                        list = new List<RoleInfo>();
+                        dict[userId] = list;
+                    }
+
+                    if (!list.Any(r => r.RoleId == role.RoleId))
+                        list.Add(role);
+                }
+
+                return dict;
+            }
+        }
+
+
+        private static Dictionary<Guid, List<TeamRoleInfo>> RetrieveTeamUserRoles(IOrganizationService svc, IReadOnlyCollection<Guid> userIdsFilter = null)
         {
             // For each user: their teams -> those teams' roles
             // We retrieve team membership via teammembership and then teamroles.
 
             // 1) teammembership: systemuser <-> team
-            var qeMember = new QueryExpression("teammembership")
-            {
-                ColumnSet = new ColumnSet("systemuserid", "teamid"),
-                NoLock = true
-            };
-
-            // join team to filter owner teams only
-            var teamLink = qeMember.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
-            teamLink.EntityAlias = "team";
-            teamLink.Columns = new ColumnSet("name", "teamtype", "businessunitid", "isdefault");
-            teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner
-
-            var teamBuLink = teamLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-            teamBuLink.EntityAlias = "teambu";
-            teamBuLink.Columns = new ColumnSet("name");
-
-            var memberEc = RetrieveAll(svc, qeMember);
-
-            // Build membership list
             var membership = new List<(Guid UserId, Guid TeamId, string TeamName, string TeamBu, bool IsDefault)>();
-            foreach (var e in memberEc.Entities)
-            {
-                var userId = GetIdFromAttribute(e, "systemuserid");
-                var teamId = GetIdFromAttribute(e, "teamid");
-                if (userId == Guid.Empty || teamId == Guid.Empty) continue;
 
-                membership.Add((userId, teamId,
-                    GetAliasedString(e, "team", "name"),
-                    GetAliasedString(e, "teambu", "name"),
-                    GetAliasedBoolean(e, "team", "isdefault") ?? false));
-            }
-
-            // 2) teamroles: team <-> role
-            var qeTeamRoles = new QueryExpression("teamroles")
+            Action<QueryExpression> addTeamJoins = (qeMember) =>
             {
-                ColumnSet = new ColumnSet("teamid", "roleid"),
-                NoLock = true
+                // join team to filter owner teams only
+                var teamLink = qeMember.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
+                teamLink.EntityAlias = "team";
+                teamLink.Columns = new ColumnSet("name", "teamtype", "businessunitid", "isdefault");
+                teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner Teams
+
+                var teamBuLink = teamLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                teamBuLink.EntityAlias = "teambu";
+                teamBuLink.Columns = new ColumnSet("name");
             };
 
-            // join role for name and BU
-            var roleLink = qeTeamRoles.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
-            roleLink.EntityAlias = "role";
-            roleLink.Columns = new ColumnSet("name", "businessunitid");
-
-            var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-            roleBuLink.EntityAlias = "rolebu";
-            roleBuLink.Columns = new ColumnSet("name");
-
-            // join team to filter owner teams and get BU
-            var teamLink2 = qeTeamRoles.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
-            teamLink2.EntityAlias = "team";
-            teamLink2.Columns = new ColumnSet("name", "teamtype", "businessunitid", "isdefault");
-            teamLink2.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner
-
-            var teamBuLink2 = teamLink2.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-            teamBuLink2.EntityAlias = "teambu";
-            teamBuLink2.Columns = new ColumnSet("name");
-
-            var teamRoleEc = RetrieveAll(svc, qeTeamRoles);
-
-            // Map: teamId -> roles
-            var teamRolesMap = new Dictionary<Guid, List<TeamRoleInfo>>();
-            foreach (var e in teamRoleEc.Entities)
+            if (userIdsFilter != null)
             {
-                var teamId = GetIdFromAttribute(e, "teamid");
-                var roleId = GetIdFromAttribute(e, "roleid");
-                if (teamId == Guid.Empty || roleId == Guid.Empty) continue;
+                var ids = userIdsFilter.Where(id => id != Guid.Empty).Distinct().ToList();
+                if (ids.Count == 0)
+                    return new Dictionary<Guid, List<TeamRoleInfo>>();
 
-                var tri = new TeamRoleInfo
+                const int chunkSize = 500;
+
+                foreach (var chunk in ChunkGuids(ids, chunkSize))
                 {
-                    TeamId = teamId,
-                    TeamName = GetAliasedString(e, "team", "name"),
-                    TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
-                    RoleId = roleId,
-                    RoleName = GetAliasedString(e, "role", "name"),
-                    RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
-                    IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false
+                    var qeMember = new QueryExpression("teammembership")
+                    {
+                        ColumnSet = new ColumnSet("systemuserid", "teamid"),
+                        NoLock = true
+                    };
+                    qeMember.Criteria.AddCondition("systemuserid", ConditionOperator.In, chunk.Cast<object>().ToArray());
+
+                    addTeamJoins(qeMember);
+
+                    var memberEc = RetrieveAll(svc, qeMember);
+
+                    foreach (var e in memberEc.Entities)
+                    {
+                        var userId = GetIdFromAttribute(e, "systemuserid");
+                        var teamId = GetIdFromAttribute(e, "teamid");
+                        if (userId == Guid.Empty || teamId == Guid.Empty) continue;
+
+                        membership.Add((userId, teamId,
+                            GetAliasedString(e, "team", "name"),
+                            GetAliasedString(e, "teambu", "name"),
+                            GetAliasedBoolean(e, "team", "isdefault") ?? false));
+                    }
+                }
+            }
+            else
+            {
+                var qeMember = new QueryExpression("teammembership")
+                {
+                    ColumnSet = new ColumnSet("systemuserid", "teamid"),
+                    NoLock = true
                 };
 
-                if (!teamRolesMap.TryGetValue(teamId, out var list))
-                {
-                    list = new List<TeamRoleInfo>();
-                    teamRolesMap[teamId] = list;
-                }
+                addTeamJoins(qeMember);
 
-                if (!list.Any(x => x.RoleId == tri.RoleId))
-                    list.Add(tri);
+                var memberEc = RetrieveAll(svc, qeMember);
+
+                foreach (var e in memberEc.Entities)
+                {
+                    var userId = GetIdFromAttribute(e, "systemuserid");
+                    var teamId = GetIdFromAttribute(e, "teamid");
+                    if (userId == Guid.Empty || teamId == Guid.Empty) continue;
+
+                    membership.Add((userId, teamId,
+                        GetAliasedString(e, "team", "name"),
+                        GetAliasedString(e, "teambu", "name"),
+                        GetAliasedBoolean(e, "team", "isdefault") ?? false));
+                }
+            }
+
+            // If no memberships, return empty
+            var teamIds = membership.Select(m => m.TeamId).Where(id => id != Guid.Empty).Distinct().ToList();
+            if (teamIds.Count == 0)
+                return new Dictionary<Guid, List<TeamRoleInfo>>();
+
+            // 2) teamroles: team <-> role (only for teams found above)
+            var teamRolesMap = new Dictionary<Guid, List<TeamRoleInfo>>();
+            const int teamChunkSize = 500;
+
+            foreach (var teamChunk in ChunkGuids(teamIds, teamChunkSize))
+            {
+                var qeTeamRoles = new QueryExpression("teamroles")
+                {
+                    ColumnSet = new ColumnSet("teamid", "roleid"),
+                    NoLock = true
+                };
+                qeTeamRoles.Criteria.AddCondition("teamid", ConditionOperator.In, teamChunk.Cast<object>().ToArray());
+
+                // join role for name and BU
+                var roleLink = qeTeamRoles.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
+                roleLink.EntityAlias = "role";
+                roleLink.Columns = new ColumnSet("name", "businessunitid");
+
+                var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                roleBuLink.EntityAlias = "rolebu";
+                roleBuLink.Columns = new ColumnSet("name");
+
+                // join team to filter owner teams and get BU
+                var teamLink2 = qeTeamRoles.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
+                teamLink2.EntityAlias = "team";
+                teamLink2.Columns = new ColumnSet("name", "teamtype", "businessunitid", "isdefault");
+                teamLink2.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner Teams
+
+                var teamBuLink2 = teamLink2.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                teamBuLink2.EntityAlias = "teambu";
+                teamBuLink2.Columns = new ColumnSet("name");
+
+                var teamRoleEc = RetrieveAll(svc, qeTeamRoles);
+
+                foreach (var e in teamRoleEc.Entities)
+                {
+                    var teamId = GetIdFromAttribute(e, "teamid");
+                    var roleId = GetIdFromAttribute(e, "roleid");
+                    if (teamId == Guid.Empty || roleId == Guid.Empty) continue;
+
+                    var tri = new TeamRoleInfo
+                    {
+                        TeamId = teamId,
+                        TeamName = GetAliasedString(e, "team", "name"),
+                        TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
+                        RoleId = roleId,
+                        RoleName = GetAliasedString(e, "role", "name"),
+                        RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                        IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false
+                    };
+
+                    if (!teamRolesMap.TryGetValue(teamId, out var list))
+                    {
+                        list = new List<TeamRoleInfo>();
+                        teamRolesMap[teamId] = list;
+                    }
+
+                    if (!list.Any(x => x.RoleId == tri.RoleId))
+                        list.Add(tri);
+                }
             }
 
             // 3) Build userId -> list of team-role rows
@@ -1938,91 +2449,183 @@ namespace GM.XrmToolBox.UserRoleMatrix
             return userMap;
         }
 
-        private static Dictionary<Guid, OwnerTeamInfo> RetrieveOwnerTeams(IOrganizationService svc)
+
+        private static Dictionary<Guid, OwnerTeamInfo> RetrieveOwnerTeams(IOrganizationService svc, IReadOnlyCollection<Guid> teamIdsFilter = null)
         {
-            var qe = new QueryExpression("team")
-            {
-                ColumnSet = new ColumnSet("teamid", "name", "teamtype", "businessunitid"),
-                NoLock = true
-            };
-            qe.Criteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner
-
-            var buLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-            buLink.EntityAlias = "teambu";
-            buLink.Columns = new ColumnSet("name");
-
-            var ec = RetrieveAll(svc, qe);
-
             var dict = new Dictionary<Guid, OwnerTeamInfo>();
-            foreach (var e in ec.Entities)
+
+            if (teamIdsFilter != null)
             {
-                dict[e.Id] = new OwnerTeamInfo
+                var ids = teamIdsFilter.Where(id => id != Guid.Empty).Distinct().ToList();
+                if (ids.Count == 0)
+                    return dict;
+
+                const int chunkSize = 500;
+
+                foreach (var chunk in ChunkGuids(ids, chunkSize))
                 {
-                    TeamId = e.Id,
-                    Name = e.GetAttributeValue<string>("name"),
-                    BusinessUnitName = GetAliasedString(e, "teambu", "name")
-                };
+                    var qe = new QueryExpression("team")
+                    {
+                        ColumnSet = new ColumnSet("teamid", "name", "teamtype", "businessunitid"),
+                        NoLock = true
+                    };
+                    qe.Criteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner Teams
+                    qe.Criteria.AddCondition("teamid", ConditionOperator.In, chunk.Cast<object>().ToArray());
+
+                    var buLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                    buLink.EntityAlias = "teambu";
+                    buLink.Columns = new ColumnSet("name");
+
+                    var ec = RetrieveAll(svc, qe);
+
+                    foreach (var e in ec.Entities)
+                    {
+                        dict[e.Id] = new OwnerTeamInfo
+                        {
+                            TeamId = e.Id,
+                            Name = e.GetAttributeValue<string>("name"),
+                            BusinessUnitName = GetAliasedString(e, "teambu", "name")
+                        };
+                    }
+                }
+
+                return dict;
             }
 
-            return dict;
+            // No filter => load all owner teams
+            {
+                var qe = new QueryExpression("team")
+                {
+                    ColumnSet = new ColumnSet("teamid", "name", "teamtype", "businessunitid"),
+                    NoLock = true
+                };
+                qe.Criteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner Teams
+
+                var buLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                buLink.EntityAlias = "teambu";
+                buLink.Columns = new ColumnSet("name");
+
+                var ec = RetrieveAll(svc, qe);
+
+                foreach (var e in ec.Entities)
+                {
+                    dict[e.Id] = new OwnerTeamInfo
+                    {
+                        TeamId = e.Id,
+                        Name = e.GetAttributeValue<string>("name"),
+                        BusinessUnitName = GetAliasedString(e, "teambu", "name")
+                    };
+                }
+
+                return dict;
+            }
         }
 
-        private static List<TeamRoleInfo> RetrieveOwnerTeamRoles(IOrganizationService svc)
+
+        private static List<TeamRoleInfo> RetrieveOwnerTeamRoles(IOrganizationService svc, IReadOnlyCollection<Guid> teamIdsFilter = null)
         {
-            var qe = new QueryExpression("teamroles")
+            var results = new List<TeamRoleInfo>();
+
+            Action<QueryExpression> addJoins = (qe) =>
             {
-                ColumnSet = new ColumnSet("teamid", "roleid"),
-                NoLock = true
+                // Filter Owner Teams via join (include isdefault so we can detect default teams)
+                var teamLink = qe.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
+                teamLink.EntityAlias = "team";
+                teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid", "isdefault");
+                teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0);
+
+                var teamBuLink = teamLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                teamBuLink.EntityAlias = "teambu";
+                teamBuLink.Columns = new ColumnSet("name");
+
+                var roleLink = qe.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
+                roleLink.EntityAlias = "role";
+                roleLink.Columns = new ColumnSet("name", "businessunitid");
+
+                var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                roleBuLink.EntityAlias = "rolebu";
+                roleBuLink.Columns = new ColumnSet("name");
             };
 
-            // Filter Owner Teams via join (include isdefault so we can detect default teams)
-            var teamLink = qe.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
-            teamLink.EntityAlias = "team";
-            teamLink.Columns = new ColumnSet("teamid", "name", "teamtype", "businessunitid", "isdefault");
-            teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0);
-
-            var teamBuLink = teamLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-            teamBuLink.EntityAlias = "teambu";
-            teamBuLink.Columns = new ColumnSet("name");
-
-            var roleLink = qe.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
-            roleLink.EntityAlias = "role";
-            roleLink.Columns = new ColumnSet("roleid", "name", "businessunitid");
-
-            var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
-            roleBuLink.EntityAlias = "rolebu";
-            roleBuLink.Columns = new ColumnSet("name");
-
-            var ec = RetrieveAll(svc, qe);
-
-            var list = new List<TeamRoleInfo>();
-            var dedupe = new HashSet<string>();
-
-            foreach (var e in ec.Entities)
+            if (teamIdsFilter != null)
             {
-                var teamId = GetIdFromAttribute(e, "teamid");
-                var roleId = GetIdFromAttribute(e, "roleid");
-                if (teamId == Guid.Empty || roleId == Guid.Empty) continue;
+                var ids = teamIdsFilter.Where(id => id != Guid.Empty).Distinct().ToList();
+                if (ids.Count == 0)
+                    return results;
 
-                var key = $"{teamId:N}|{roleId:N}";
-                if (!dedupe.Add(key)) continue;
+                const int chunkSize = 500;
 
-                list.Add(new TeamRoleInfo
+                foreach (var chunk in ChunkGuids(ids, chunkSize))
                 {
-                    TeamId = teamId,
-                    TeamName = GetAliasedString(e, "team", "name"),
-                    TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
-                    RoleId = roleId,
-                    RoleName = GetAliasedString(e, "role", "name"),
-                    RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
-                    IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false
-                });
+                    var qe = new QueryExpression("teamroles")
+                    {
+                        ColumnSet = new ColumnSet("teamid", "roleid"),
+                        NoLock = true
+                    };
+                    qe.Criteria.AddCondition("teamid", ConditionOperator.In, chunk.Cast<object>().ToArray());
+
+                    addJoins(qe);
+
+                    var ec = RetrieveAll(svc, qe);
+
+                    foreach (var e in ec.Entities)
+                    {
+                        var teamId = GetIdFromAttribute(e, "teamid");
+                        var roleId = GetIdFromAttribute(e, "roleid");
+                        if (teamId == Guid.Empty || roleId == Guid.Empty) continue;
+
+                        results.Add(new TeamRoleInfo
+                        {
+                            TeamId = teamId,
+                            TeamName = GetAliasedString(e, "team", "name"),
+                            TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
+                            RoleId = roleId,
+                            RoleName = GetAliasedString(e, "role", "name"),
+                            RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                            IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false
+                        });
+                    }
+                }
+            }
+            else
+            {
+                var qe = new QueryExpression("teamroles")
+                {
+                    ColumnSet = new ColumnSet("teamid", "roleid"),
+                    NoLock = true
+                };
+
+                addJoins(qe);
+
+                var ec = RetrieveAll(svc, qe);
+
+                foreach (var e in ec.Entities)
+                {
+                    var teamId = GetIdFromAttribute(e, "teamid");
+                    var roleId = GetIdFromAttribute(e, "roleid");
+                    if (teamId == Guid.Empty || roleId == Guid.Empty) continue;
+
+                    results.Add(new TeamRoleInfo
+                    {
+                        TeamId = teamId,
+                        TeamName = GetAliasedString(e, "team", "name"),
+                        TeamBusinessUnitName = GetAliasedString(e, "teambu", "name"),
+                        RoleId = roleId,
+                        RoleName = GetAliasedString(e, "role", "name"),
+                        RoleBusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                        IsDefaultTeam = GetAliasedBoolean(e, "team", "isdefault") ?? false
+                    });
+                }
             }
 
-            return list;
+            // De-dupe TeamId + RoleId
+            return results
+                .GroupBy(x => $"{x.TeamId:N}|{x.RoleId:N}")
+                .Select(g => g.First())
+                .ToList();
         }
 
-        private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationService svc)
+private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationService svc)
         {
             var qe = new QueryExpression("businessunit")
             {

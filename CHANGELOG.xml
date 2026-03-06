@@ -38,6 +38,22 @@
 			<item>Add User Role failed for users outside the root Business Unit when Modern Business Unit (EnableOwnershipAcrossBusinessUnits) was disabled. The role is now assigned using the user's own Business Unit instead of the root BU.</item>
 		</fixed>
 	</release>
+	<release version="5.0.0.3" date="2026-01-25">
+		<added>
+			<item>Views dropdown (System Views and Personal Views) for both Users and Owner Teams, with per-entity view persistence.</item>
+			<item>Delete selected role assignments (direct user-role disassociation).</item>
+			<item>Add User Role dialog with dynamic role loading per Business Unit.</item>
+			<item>EnableOwnershipAcrossBusinessUnits org setting detection displayed in the status bar.</item>
+			<item>View-based filtering: load only records matching the selected Dataverse view (FetchXml).</item>
+		</added>
+		<changed>
+			<item>Toolbar reorganized into two levels: actions on Level 1, filters (View, Business Unit, Assignment, Search) on Level 2.</item>
+			<item>About icon moved to the far right of the toolbar.</item>
+		</changed>
+		<fixed>
+			<item>Add User Role now uses the selected user's own Business Unit when Modern Business Unit is disabled, preventing errors for non-root BU users.</item>
+		</fixed>
+	</release>
 
 </changelog>
 
