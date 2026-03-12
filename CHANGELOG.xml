@@ -38,7 +38,7 @@
 			<item>Add User Role failed for users outside the root Business Unit when Modern Business Unit (EnableOwnershipAcrossBusinessUnits) was disabled. The role is now assigned using the user's own Business Unit instead of the root BU.</item>
 		</fixed>
 	</release>
-	<release version="5.0.0.3" date="2026-01-25">
+	<release version="5.0.0.3" date="2026-02-25">
 		<added>
 			<item>Views dropdown (System Views and Personal Views) for both Users and Owner Teams, with per-entity view persistence.</item>
 			<item>Delete selected role assignments (direct user-role disassociation).</item>
@@ -54,6 +54,10 @@
 			<item>Add User Role now uses the selected user's own Business Unit when Modern Business Unit is disabled, preventing errors for non-root BU users.</item>
 		</fixed>
 	</release>
-
+	<release version="5.0.1.0" date="2026-03-12">
+		<fixed>
+			<item>Compatibility issue fixed</item>
+		</fixed>
+	</release>
 </changelog>
 
