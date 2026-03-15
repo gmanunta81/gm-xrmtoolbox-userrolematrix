@@ -59,5 +59,15 @@
 			<item>Compatibility issue fixed</item>
 		</fixed>
 	</release>
+	<release version="5.0.1.1" date="2026-03-13">
+		<added>
+			<item>Team Business Unit filter dropdown on the filters toolbar (Level 2), next to the Assignment filter.</item>
+			<item>Role Business Unit filter dropdown on the filters toolbar (Level 2), to filter rows by Role Business Unit.</item>
+			<item>Add User to Owner Team" button: opens a dialog to add a user to an Owner Team (AddMembersTeamRequest).</item>
+		</added>
+		<changed>
+			<item>Delete button now handles team-inherited role records: shows a confirmation popup warning that removing a user from an Owner Team will remove all roles inherited from that team, with OK/Cancel options.</item>
+		</changed>
+	</release>
 </changelog>
 

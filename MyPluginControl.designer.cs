@@ -11,6 +11,7 @@
         private System.Windows.Forms.ToolStripButton tsbLoadOwnerTeamsRoles;
         private System.Windows.Forms.ToolStripButton tsbSelectAllRecords;
         private System.Windows.Forms.ToolStripButton tsbAddUserRole;
+        private System.Windows.Forms.ToolStripButton tsbAddUserToTeam;
         private System.Windows.Forms.ToolStripButton tsbDel;
 
         private System.Windows.Forms.ToolStripDropDownButton tsddExport;
@@ -28,6 +29,12 @@
 
         private System.Windows.Forms.ToolStripLabel tslAssignment;
         private System.Windows.Forms.ToolStripComboBox tscAssignment;
+
+        private System.Windows.Forms.ToolStripLabel tslTeamBU;
+        private System.Windows.Forms.ToolStripComboBox tscTeamBU;
+
+        private System.Windows.Forms.ToolStripLabel tslRoleBU;
+        private System.Windows.Forms.ToolStripComboBox tscRoleBU;
 
         private System.Windows.Forms.ToolStripLabel tslSearch;
         private System.Windows.Forms.ToolStripTextBox tstSearch;
@@ -53,6 +60,7 @@
             this.tsbLoadOwnerTeamsRoles = new System.Windows.Forms.ToolStripButton();
             this.tsbSelectAllRecords = new System.Windows.Forms.ToolStripButton();
             this.tsbAddUserRole = new System.Windows.Forms.ToolStripButton();
+            this.tsbAddUserToTeam = new System.Windows.Forms.ToolStripButton();
             this.tsbDel = new System.Windows.Forms.ToolStripButton();
             this.tsddExport = new System.Windows.Forms.ToolStripDropDownButton();
             this.tsmiExportCsv = new System.Windows.Forms.ToolStripMenuItem();
@@ -65,6 +73,10 @@
             this.tscTeam = new System.Windows.Forms.ToolStripComboBox();
             this.tslAssignment = new System.Windows.Forms.ToolStripLabel();
             this.tscAssignment = new System.Windows.Forms.ToolStripComboBox();
+            this.tslTeamBU = new System.Windows.Forms.ToolStripLabel();
+            this.tscTeamBU = new System.Windows.Forms.ToolStripComboBox();
+            this.tslRoleBU = new System.Windows.Forms.ToolStripLabel();
+            this.tscRoleBU = new System.Windows.Forms.ToolStripComboBox();
             this.tslSearch = new System.Windows.Forms.ToolStripLabel();
             this.tstSearch = new System.Windows.Forms.ToolStripTextBox();
             this.tsbAbout = new System.Windows.Forms.ToolStripButton();
@@ -86,6 +98,7 @@
             this.tsbLoadOwnerTeamsRoles,
             this.tsbSelectAllRecords,
             this.tsbAddUserRole,
+            this.tsbAddUserToTeam,
             this.tsbDel,
             this.tsddExport});
             this.tsMain.Location = new System.Drawing.Point(0, 0);
@@ -107,6 +120,10 @@
             this.tscTeam,
             this.tslAssignment,
             this.tscAssignment,
+            this.tslTeamBU,
+            this.tscTeamBU,
+            this.tslRoleBU,
+            this.tscRoleBU,
             this.tslSearch,
             this.tstSearch});
             this.tsFilters.Location = new System.Drawing.Point(0, 27);
@@ -144,6 +161,13 @@
             this.tsbAddUserRole.Name = "tsbAddUserRole";
             this.tsbAddUserRole.Size = new System.Drawing.Size(108, 24);
             this.tsbAddUserRole.Text = "Add User Role";
+            // 
+            // tsbAddUserToTeam
+            // 
+            this.tsbAddUserToTeam.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.tsbAddUserToTeam.Name = "tsbAddUserToTeam";
+            this.tsbAddUserToTeam.Size = new System.Drawing.Size(152, 24);
+            this.tsbAddUserToTeam.Text = "Add User to Owner Team";
             // 
             // tsbDel
             // 
@@ -223,6 +247,30 @@
             this.tscAssignment.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
             this.tscAssignment.Name = "tscAssignment";
             this.tscAssignment.Size = new System.Drawing.Size(110, 27);
+            // 
+            // tslTeamBU
+            // 
+            this.tslTeamBU.Name = "tslTeamBU";
+            this.tslTeamBU.Size = new System.Drawing.Size(98, 24);
+            this.tslTeamBU.Text = "Team BU:";
+            // 
+            // tscTeamBU
+            // 
+            this.tscTeamBU.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.tscTeamBU.Name = "tscTeamBU";
+            this.tscTeamBU.Size = new System.Drawing.Size(160, 27);
+            // 
+            // tslRoleBU
+            // 
+            this.tslRoleBU.Name = "tslRoleBU";
+            this.tslRoleBU.Size = new System.Drawing.Size(98, 24);
+            this.tslRoleBU.Text = "Role BU:";
+            // 
+            // tscRoleBU
+            // 
+            this.tscRoleBU.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.tscRoleBU.Name = "tscRoleBU";
+            this.tscRoleBU.Size = new System.Drawing.Size(160, 27);
             // 
             // tslSearch
             // 

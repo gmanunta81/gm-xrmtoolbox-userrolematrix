@@ -187,6 +187,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             };
 
             tsbAddUserRole.Click += (s, e) => ExecuteMethod(OpenAddUserRoleDialog);
+            tsbAddUserToTeam.Click += (s, e) => ExecuteMethod(OpenAddUserToTeamDialog);
             tsbDel.Click += (s, e) => ExecuteMethod(DeleteSelectedAssignments);
 
             tsmiExportCsv.Click += (s, e) => ExportCsv();
@@ -211,6 +212,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
             tscBusinessUnit.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
             tscTeam.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
             tscAssignment.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
+            tscTeamBU.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
+            tscRoleBU.SelectedIndexChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
             tstSearch.TextChanged += (s, e) => { if (!_updatingFilters) ApplyAllFilters(); };
 
             InitializeStaticFilters();
@@ -241,6 +244,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             tsbLoadUsersRoles.Enabled = connected;
             tsbLoadOwnerTeamsRoles.Enabled = connected;
             tsbAddUserRole.Enabled = connected;
+            tsbAddUserToTeam.Enabled = connected;
             tsbDel.Enabled = connected;
             tsddExport.Enabled = connected;
             tslView.Enabled = connected;
@@ -257,6 +261,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
 
             tsbDel.Enabled = hasData && (_currentMode == ModeSystemUser || _currentMode == ModeTeam);
             tsbAddUserRole.Enabled = true; // always available, it reloads user view after add
+            tsbAddUserToTeam.Enabled = true; // always available
         }
 
         private void InitializeStaticFilters()
@@ -281,6 +286,14 @@ namespace GM.XrmToolBox.UserRoleMatrix
                 tscAssignment.Items.Add("Direct");
                 tscAssignment.Items.Add("Team");
                 tscAssignment.SelectedIndex = 0;
+
+                tscTeamBU.Items.Clear();
+                tscTeamBU.Items.Add("All");
+                tscTeamBU.SelectedIndex = 0;
+
+                tscRoleBU.Items.Clear();
+                tscRoleBU.Items.Add("All");
+                tscRoleBU.SelectedIndex = 0;
 
                 tstSearch.Text = "";
             }
@@ -762,7 +775,7 @@ private void DeleteSelectedAssignments()
 
             // Gather selected rows (visible)
             var ops = new List<DeleteOp>();
-            int skippedTeamAssignmentsInUserMode = 0;
+            var teamRemovalOps = new List<TeamMemberRemoveOp>();
             int skippedMissingIds = 0;
 
             foreach (DataGridViewRow gridRow in dgvResults.Rows)
@@ -781,21 +794,33 @@ private void DeleteSelectedAssignments()
 
                 if (_currentMode == ModeSystemUser)
                 {
-                    // Safety: In systemuser mode we only remove DIRECT user-role assignments.
-                    // Team assignments are skipped to avoid accidentally impacting a whole team.
-                    if (!string.Equals(assignmentType, "Direct", StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(assignmentType, "Direct", StringComparison.OrdinalIgnoreCase))
                     {
-                        skippedTeamAssignmentsInUserMode++;
-                        continue;
-                    }
+                        if (userId == Guid.Empty || roleId == Guid.Empty)
+                        {
+                            skippedMissingIds++;
+                            continue;
+                        }
 
-                    if (userId == Guid.Empty || roleId == Guid.Empty)
+                        ops.Add(DeleteOp.ForUserRole(userId, roleId));
+                    }
+                    else if (string.Equals(assignmentType, "Team", StringComparison.OrdinalIgnoreCase))
                     {
-                        skippedMissingIds++;
-                        continue;
-                    }
+                        if (userId == Guid.Empty || teamId == Guid.Empty)
+                        {
+                            skippedMissingIds++;
+                            continue;
+                        }
 
-                    ops.Add(DeleteOp.ForUserRole(userId, roleId));
+                        var teamName = row.Field<string>("Team") ?? "";
+                        teamRemovalOps.Add(new TeamMemberRemoveOp
+                        {
+                            UserId = userId,
+                            TeamId = teamId,
+                            TeamName = teamName,
+                            UserName = row.Field<string>("User") ?? ""
+                        });
+                    }
                 }
                 else if (_currentMode == ModeTeam)
                 {
@@ -809,13 +834,40 @@ private void DeleteSelectedAssignments()
                 }
             }
 
+            // Deduplicate team removal ops (same user + team)
+            teamRemovalOps = teamRemovalOps
+                .GroupBy(o => $"{o.UserId:N}|{o.TeamId:N}")
+                .Select(g => g.First())
+                .ToList();
+
+            // If there are team-inherited role removals, ask for confirmation
+            if (teamRemovalOps.Count > 0)
+            {
+                var msg = "The following selected records are roles inherited via Owner Teams.\n" +
+                          "Removing a user from an Owner Team will remove ALL roles inherited from that team.\n\n";
+
+                foreach (var tr in teamRemovalOps.Take(10))
+                    msg += $"  • {tr.UserName} → {tr.TeamName}\n";
+
+                if (teamRemovalOps.Count > 10)
+                    msg += $"  ... and {teamRemovalOps.Count - 10} more.\n";
+
+                msg += "\nDo you want to proceed?";
+
+                var confirm = MessageBox.Show(msg, "Remove User from Owner Team",
+                    MessageBoxButtons.OKCancel, MessageBoxIcon.Warning);
+
+                if (confirm != DialogResult.OK)
+                    teamRemovalOps.Clear();
+            }
+
             // Deduplicate operations
             ops = ops
                 .GroupBy(o => o.Key)
                 .Select(g => g.First())
                 .ToList();
 
-            if (ops.Count == 0)
+            if (ops.Count == 0 && teamRemovalOps.Count == 0)
             {
                 MessageBox.Show("No records selected/found.", "Delete", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
@@ -830,7 +882,9 @@ private void DeleteSelectedAssignments()
                 {
                     int success = 0;
                     var errors = new List<string>();
+                    int teamRemoveSuccess = 0;
 
+                    // Process direct role disassociations
                     const int batchSize = 500;
 
                     for (int i = 0; i < ops.Count; i += batchSize)
@@ -909,12 +963,30 @@ private void DeleteSelectedAssignments()
                         }
                     }
 
+                    // Process team membership removals (RemoveMembersTeamRequest)
+                    foreach (var tmOp in teamRemovalOps)
+                    {
+                        try
+                        {
+                            var removeReq = new RemoveMembersTeamRequest
+                            {
+                                TeamId = tmOp.TeamId,
+                                MemberIds = new[] { tmOp.UserId }
+                            };
+                            Service.Execute(removeReq);
+                            teamRemoveSuccess++;
+                        }
+                        catch (Exception ex2)
+                        {
+                            errors.Add($"Remove {tmOp.UserName} from {tmOp.TeamName}: {ex2.Message}");
+                        }
+                    }
+
                     e.Result = new DeleteResult
                     {
-                        Total = ops.Count,
-                        Success = success,
+                        Total = ops.Count + teamRemovalOps.Count,
+                        Success = success + teamRemoveSuccess,
                         Errors = errors,
-                        SkippedTeamAssignmentsInUserMode = skippedTeamAssignmentsInUserMode,
                         SkippedMissingIds = skippedMissingIds
                     };
                 },
@@ -932,9 +1004,6 @@ private void DeleteSelectedAssignments()
 
                     var sb = new StringBuilder();
                     sb.AppendLine($"Deleted: {res.Success}/{res.Total}");
-
-                    if (res.SkippedTeamAssignmentsInUserMode > 0)
-                        sb.AppendLine($"Skipped (Team assignments in user mode): {res.SkippedTeamAssignmentsInUserMode}");
 
                     if (res.SkippedMissingIds > 0)
                         sb.AppendLine($"Skipped (Missing IDs): {res.SkippedMissingIds}");
@@ -997,8 +1066,15 @@ private void DeleteSelectedAssignments()
             public int Success { get; set; }
             public List<string> Errors { get; set; } = new List<string>();
 
-            public int SkippedTeamAssignmentsInUserMode { get; set; }
             public int SkippedMissingIds { get; set; }
+        }
+
+        private sealed class TeamMemberRemoveOp
+        {
+            public Guid UserId { get; set; }
+            public Guid TeamId { get; set; }
+            public string TeamName { get; set; }
+            public string UserName { get; set; }
         }
 
         // -----------------------
@@ -1430,6 +1506,289 @@ private void DeleteSelectedAssignments()
             }
         }
 
+        // -----------------------
+        // Feature: Add User to Owner Team
+        // -----------------------
+        private void OpenAddUserToTeamDialog()
+        {
+            if (Service == null)
+            {
+                MessageBox.Show("Not connected.", "Add User to Owner Team", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            WorkAsync(new WorkAsyncInfo
+            {
+                Message = "Loading users and owner teams...",
+                Work = (w, e) =>
+                {
+                    var users = RetrieveAllUsers(Service).Values
+                        .Where(u => !u.IsDisabled)
+                        .OrderBy(u => u.FullName, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    var teams = RetrieveOwnerTeams(Service).Values
+                        .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    e.Result = new AddUserToTeamDialogData
+                    {
+                        Users = users,
+                        Teams = teams
+                    };
+                },
+                PostWorkCallBack = e =>
+                {
+                    if (e.Error != null)
+                    {
+                        ShowErrorDialog(e.Error);
+                        return;
+                    }
+
+                    var data = (AddUserToTeamDialogData)e.Result;
+
+                    using (var dlg = new AddUserToTeamForm(Service, data.Users, data.Teams))
+                    {
+                        var result = dlg.ShowDialog(this);
+                        if (result == DialogResult.OK)
+                        {
+                            if (_currentMode == ModeSystemUser)
+                                LoadUsersAndRoles();
+                            else if (_currentMode == ModeTeam)
+                                LoadOwnerTeamsRoles();
+                        }
+                    }
+                }
+            });
+        }
+
+        private sealed class AddUserToTeamDialogData
+        {
+            public List<UserInfo> Users { get; set; }
+            public List<OwnerTeamInfo> Teams { get; set; }
+        }
+
+        private sealed class AddUserToTeamForm : Form
+        {
+            private readonly IOrganizationService _service;
+            private readonly List<UserInfo> _users;
+            private readonly List<OwnerTeamInfo> _teams;
+
+            private readonly ComboBox _cbUser = new ComboBox();
+            private readonly ComboBox _cbTeam = new ComboBox();
+            private readonly Button _btnAdd = new Button();
+            private readonly Button _btnCancel = new Button();
+
+            public AddUserToTeamForm(
+                IOrganizationService service,
+                List<UserInfo> users,
+                List<OwnerTeamInfo> teams)
+            {
+                _service = service ?? throw new ArgumentNullException(nameof(service));
+                _users = users ?? new List<UserInfo>();
+                _teams = teams ?? new List<OwnerTeamInfo>();
+
+                Text = "Add User to Owner Team";
+                StartPosition = FormStartPosition.CenterParent;
+                FormBorderStyle = FormBorderStyle.FixedDialog;
+                MaximizeBox = false;
+                MinimizeBox = false;
+                ShowInTaskbar = false;
+                Width = 560;
+                Height = 210;
+
+                BuildUi();
+                LoadData();
+            }
+
+            private void BuildUi()
+            {
+                var lblUser = new Label { Text = "User:", Left = 16, Top = 20, Width = 120 };
+                var lblTeam = new Label { Text = "Owner Team:", Left = 16, Top = 70, Width = 120 };
+
+                ConfigureCombo(_cbUser);
+                _cbUser.Left = 150;
+                _cbUser.Top = 16;
+                _cbUser.Width = 370;
+
+                ConfigureCombo(_cbTeam);
+                _cbTeam.Left = 150;
+                _cbTeam.Top = 66;
+                _cbTeam.Width = 370;
+
+                _btnAdd.Text = "Add";
+                _btnAdd.Left = 330;
+                _btnAdd.Top = 120;
+                _btnAdd.Width = 90;
+                _btnAdd.Click += (s, e) => AddClicked();
+
+                _btnCancel.Text = "Cancel";
+                _btnCancel.Left = 430;
+                _btnCancel.Top = 120;
+                _btnCancel.Width = 90;
+                _btnCancel.Click += (s, e) => { DialogResult = DialogResult.Cancel; Close(); };
+
+                Controls.Add(lblUser);
+                Controls.Add(_cbUser);
+                Controls.Add(lblTeam);
+                Controls.Add(_cbTeam);
+                Controls.Add(_btnAdd);
+                Controls.Add(_btnCancel);
+            }
+
+            private static void ConfigureCombo(ComboBox cb)
+            {
+                cb.DropDownStyle = ComboBoxStyle.DropDown;
+                cb.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                cb.AutoCompleteSource = AutoCompleteSource.ListItems;
+            }
+
+            private void LoadData()
+            {
+                _cbUser.Items.Clear();
+                foreach (var u in _users)
+                {
+                    var baseText = string.IsNullOrWhiteSpace(u.Email)
+                        ? u.FullName
+                        : $"{u.FullName} ({u.Email})";
+
+                    var buSuffix = string.IsNullOrWhiteSpace(u.BusinessUnitName)
+                        ? string.Empty
+                        : $" - {u.BusinessUnitName}";
+
+                    _cbUser.Items.Add(new ComboItem(u.UserId, baseText + buSuffix));
+                }
+
+                _cbTeam.Items.Clear();
+                foreach (var t in _teams)
+                {
+                    var buSuffix = string.IsNullOrWhiteSpace(t.BusinessUnitName)
+                        ? string.Empty
+                        : $" - {t.BusinessUnitName}";
+
+                    _cbTeam.Items.Add(new ComboItem(t.TeamId, t.Name + buSuffix));
+                }
+            }
+
+            private void AddClicked()
+            {
+                TrySelectByText(_cbUser);
+                TrySelectByText(_cbTeam);
+
+                var userItem = _cbUser.SelectedItem as ComboItem;
+                var teamItem = _cbTeam.SelectedItem as ComboItem;
+
+                if (userItem == null || userItem.Id == Guid.Empty ||
+                    teamItem == null || teamItem.Id == Guid.Empty)
+                {
+                    MessageBox.Show("Please select a user and an owner team.", "Add User to Owner Team", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                Exception executeException = null;
+
+                using (var waiting = new WaitingForm("Adding user to team..."))
+                {
+                    System.Threading.Tasks.Task.Run(() =>
+                    {
+                        try
+                        {
+                            var req = new AddMembersTeamRequest
+                            {
+                                TeamId = teamItem.Id,
+                                MemberIds = new[] { userItem.Id }
+                            };
+                            _service.Execute(req);
+                        }
+                        catch (Exception ex)
+                        {
+                            executeException = ex;
+                        }
+                        finally
+                        {
+                            try
+                            {
+                                if (!waiting.IsDisposed)
+                                    waiting.BeginInvoke(new Action(() => { try { waiting.Close(); } catch { } }));
+                            }
+                            catch { }
+                        }
+                    });
+
+                    waiting.ShowDialog(this);
+                }
+
+                if (executeException != null)
+                {
+                    MessageBox.Show(executeException.Message, "Add User to Owner Team", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                DialogResult = DialogResult.OK;
+                Close();
+            }
+
+            private sealed class ComboItem
+            {
+                public Guid Id { get; }
+                public string Text { get; }
+
+                public ComboItem(Guid id, string text)
+                {
+                    Id = id;
+                    Text = text ?? "";
+                }
+
+                public override string ToString() => Text;
+            }
+
+            private static void TrySelectByText(ComboBox cb)
+            {
+                if (cb.SelectedItem != null) return;
+
+                var text = (cb.Text ?? "").Trim();
+                if (text.Length == 0) return;
+
+                for (int i = 0; i < cb.Items.Count; i++)
+                {
+                    var itemText = cb.GetItemText(cb.Items[i]);
+                    if (string.Equals(itemText?.Trim(), text, StringComparison.OrdinalIgnoreCase))
+                    {
+                        cb.SelectedIndex = i;
+                        return;
+                    }
+                }
+            }
+
+            private sealed class WaitingForm : Form
+            {
+                public WaitingForm(string message)
+                {
+                    FormBorderStyle = FormBorderStyle.FixedDialog;
+                    StartPosition = FormStartPosition.CenterParent;
+                    ShowInTaskbar = false;
+                    ControlBox = false;
+                    Width = 360;
+                    Height = 110;
+                    BackColor = Color.LightYellow;
+
+                    var lbl = new Label
+                    {
+                        Text = message ?? "Please wait...",
+                        AutoSize = false,
+                        TextAlign = ContentAlignment.MiddleCenter,
+                        Dock = DockStyle.Fill,
+                        Font = new Font(SystemFonts.MessageBoxFont.FontFamily, 10, FontStyle.Bold)
+                    };
+
+                    Controls.Add(lbl);
+
+                    Shown += (s, e) => Cursor = Cursors.WaitCursor;
+                    FormClosed += (s, e) => Cursor = Cursors.Default;
+                }
+            }
+        }
+
         private sealed class AboutForm : Form
         {
             public AboutForm()
@@ -1679,6 +2038,20 @@ private void DeleteSelectedAssignments()
                     .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
+                var teamBUs = _table.AsEnumerable()
+                    .Select(r => r.Field<string>("Team Business Unit"))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var roleBUs = _table.AsEnumerable()
+                    .Select(r => r.Field<string>("Role Business Unit"))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(s => s, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
                 tscBusinessUnit.Items.Clear();
                 tscBusinessUnit.Items.Add("All");
                 foreach (var bu in businessUnits) tscBusinessUnit.Items.Add(bu);
@@ -1688,6 +2061,16 @@ private void DeleteSelectedAssignments()
                 tscTeam.Items.Add("All");
                 foreach (var t in teams) tscTeam.Items.Add(t);
                 tscTeam.SelectedIndex = 0;
+
+                tscTeamBU.Items.Clear();
+                tscTeamBU.Items.Add("All");
+                foreach (var tbu in teamBUs) tscTeamBU.Items.Add(tbu);
+                tscTeamBU.SelectedIndex = 0;
+
+                tscRoleBU.Items.Clear();
+                tscRoleBU.Items.Add("All");
+                foreach (var rbu in roleBUs) tscRoleBU.Items.Add(rbu);
+                tscRoleBU.SelectedIndex = 0;
             }
             finally
             {
@@ -1716,6 +2099,14 @@ private void DeleteSelectedAssignments()
                 filters.Add($"[Assignment Type] = 'Direct'");
             else if (string.Equals(assignment, "Team", StringComparison.OrdinalIgnoreCase))
                 filters.Add($"[Assignment Type] = 'Team'");
+
+            var teamBU = (tscTeamBU.SelectedItem?.ToString() ?? "All").Trim();
+            if (!string.Equals(teamBU, "All", StringComparison.OrdinalIgnoreCase))
+                filters.Add($"[Team Business Unit] = '{EscapeRowFilterValue(teamBU)}'");
+
+            var roleBU = (tscRoleBU.SelectedItem?.ToString() ?? "All").Trim();
+            if (!string.Equals(roleBU, "All", StringComparison.OrdinalIgnoreCase))
+                filters.Add($"[Role Business Unit] = '{EscapeRowFilterValue(roleBU)}'");
 
             var search = (tstSearch.Text ?? "").Trim();
             if (!string.IsNullOrWhiteSpace(search))

@@ -5,7 +5,7 @@
     <id>GM.XrmToolBox.UserRoleMatrix</id>
 
     <!-- IMPORTANT: must match assembly version -->
-    <version>5.0.1.0</version>
+    <version>5.0.1.1</version>
 
     <title>User Role Matrix</title>
     <authors>Giovanni Manunta</authors>
@@ -19,7 +19,13 @@
     <description>XrmToolBox plugin to analyze Users and Owner Teams Security Roles (direct + via teams), with filters, duplicates, add/remove role assignments, export.</description>
     <summary>User and Owner Team role matrix for Dataverse / Dynamics 365.</summary>
 
-    <releaseNotes>
+	<releaseNotes>
+		5.0.1.1
+		- Added: Team Business Unit filter dropdown on the filters toolbar.
+		- Added: Role Business Unit filter dropdown on the filters toolbar.
+		- Added: "Add User to Owner Team" button to add a user to an Owner Team.
+		- Changed: Delete button now supports team-inherited roles; shows a confirmation warning that removing a user from an Owner Team will remove all roles inherited from that team.
+
 		5.0.1.0
 		- Compatibility issue fixed.
 		
