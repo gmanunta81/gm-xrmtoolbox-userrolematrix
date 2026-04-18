@@ -69,5 +69,11 @@
 			<item>Delete button now handles team-inherited role records: shows a confirmation popup warning that removing a user from an Owner Team will remove all roles inherited from that team, with OK/Cancel options.</item>
 		</changed>
 	</release>
+	<release version="5.0.2.1" date="2026-03-13">
+		<added>
+			<item>Added the Privilege Discovery Functionality</item>
+		</added>
+		
+	</release>
 </changelog>
 
