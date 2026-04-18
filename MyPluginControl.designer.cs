@@ -11,6 +11,7 @@
         private System.Windows.Forms.ToolStripButton tsbLoadOwnerTeamsRoles;
         private System.Windows.Forms.ToolStripButton tsbSelectAllRecords;
         private System.Windows.Forms.ToolStripButton tsbAddUserRole;
+        private System.Windows.Forms.ToolStripButton tsbPrivilegeDiscovery;
         private System.Windows.Forms.ToolStripButton tsbAddUserToTeam;
         private System.Windows.Forms.ToolStripButton tsbDel;
 
@@ -42,6 +43,8 @@
         private System.Windows.Forms.ToolStripButton tsbAbout;
         private System.Windows.Forms.ToolStripLabel tslCount;
 
+        private System.Windows.Forms.TabControl tcMain;
+        private System.Windows.Forms.TabPage tpMatrix;
         private System.Windows.Forms.DataGridView dgvResults;
 
         protected override void Dispose(bool disposing)
@@ -60,6 +63,7 @@
             this.tsbLoadOwnerTeamsRoles = new System.Windows.Forms.ToolStripButton();
             this.tsbSelectAllRecords = new System.Windows.Forms.ToolStripButton();
             this.tsbAddUserRole = new System.Windows.Forms.ToolStripButton();
+            this.tsbPrivilegeDiscovery = new System.Windows.Forms.ToolStripButton();
             this.tsbAddUserToTeam = new System.Windows.Forms.ToolStripButton();
             this.tsbDel = new System.Windows.Forms.ToolStripButton();
             this.tsddExport = new System.Windows.Forms.ToolStripDropDownButton();
@@ -81,10 +85,14 @@
             this.tstSearch = new System.Windows.Forms.ToolStripTextBox();
             this.tsbAbout = new System.Windows.Forms.ToolStripButton();
             this.tslCount = new System.Windows.Forms.ToolStripLabel();
+            this.tcMain = new System.Windows.Forms.TabControl();
+            this.tpMatrix = new System.Windows.Forms.TabPage();
             this.dgvResults = new System.Windows.Forms.DataGridView();
             this.tsMain.SuspendLayout();
             this.tsFilters.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.dgvResults)).BeginInit();
+            this.tcMain.SuspendLayout();
+            this.tpMatrix.SuspendLayout();
             this.SuspendLayout();
             // 
             // tsMain – Level 1: Actions + right-aligned info
@@ -98,6 +106,7 @@
             this.tsbLoadOwnerTeamsRoles,
             this.tsbSelectAllRecords,
             this.tsbAddUserRole,
+            this.tsbPrivilegeDiscovery,
             this.tsbAddUserToTeam,
             this.tsbDel,
             this.tsddExport});
@@ -161,6 +170,14 @@
             this.tsbAddUserRole.Name = "tsbAddUserRole";
             this.tsbAddUserRole.Size = new System.Drawing.Size(108, 24);
             this.tsbAddUserRole.Text = "Add User Role";
+
+            // 
+            // tsbPrivilegeDiscovery
+            // 
+            this.tsbPrivilegeDiscovery.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Text;
+            this.tsbPrivilegeDiscovery.Name = "tsbPrivilegeDiscovery";
+            this.tsbPrivilegeDiscovery.Size = new System.Drawing.Size(150, 24);
+            this.tsbPrivilegeDiscovery.Text = "Privileges Discovery";
             // 
             // tsbAddUserToTeam
             // 
@@ -301,30 +318,53 @@
             this.tslCount.Size = new System.Drawing.Size(59, 24);
             this.tslCount.Text = "Rows: 0";
             // 
+            // tcMain
+            // 
+            this.tcMain.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.tcMain.Location = new System.Drawing.Point(0, 54);
+            this.tcMain.Name = "tcMain";
+            this.tcMain.SelectedIndex = 0;
+            this.tcMain.Size = new System.Drawing.Size(1200, 646);
+            this.tcMain.TabIndex = 1;
+            // 
+            // tpMatrix
+            // 
+            this.tpMatrix.Location = new System.Drawing.Point(4, 25);
+            this.tpMatrix.Name = "tpMatrix";
+            this.tpMatrix.Padding = new System.Windows.Forms.Padding(3);
+            this.tpMatrix.Size = new System.Drawing.Size(1192, 617);
+            this.tpMatrix.TabIndex = 0;
+            this.tpMatrix.Text = "User Roles Matrix";
+            this.tpMatrix.UseVisualStyleBackColor = true;
+            // 
             // dgvResults
             // 
             this.dgvResults.ColumnHeadersHeight = 29;
             this.dgvResults.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.dgvResults.Location = new System.Drawing.Point(0, 54);
+            this.dgvResults.Location = new System.Drawing.Point(3, 3);
             this.dgvResults.Name = "dgvResults";
             this.dgvResults.RowHeadersWidth = 51;
-            this.dgvResults.Size = new System.Drawing.Size(1200, 646);
-            this.dgvResults.TabIndex = 1;
+            this.dgvResults.Size = new System.Drawing.Size(1186, 611);
+            this.dgvResults.TabIndex = 0;
             // 
             // MyPluginControl
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.Controls.Add(this.dgvResults);
+            this.tpMatrix.Controls.Add(this.dgvResults);
+            this.tcMain.Controls.Add(this.tpMatrix);
+            this.Controls.Add(this.tcMain);
             this.Controls.Add(this.tsFilters);
             this.Controls.Add(this.tsMain);
             this.Name = "MyPluginControl";
             this.Size = new System.Drawing.Size(1200, 700);
+            ((System.ComponentModel.ISupportInitialize)(this.dgvResults)).EndInit();
+            this.tpMatrix.ResumeLayout(false);
+            this.tcMain.ResumeLayout(false);
             this.tsMain.ResumeLayout(false);
             this.tsMain.PerformLayout();
             this.tsFilters.ResumeLayout(false);
             this.tsFilters.PerformLayout();
-            ((System.ComponentModel.ISupportInitialize)(this.dgvResults)).EndInit();
             this.ResumeLayout(false);
             this.PerformLayout();
 

@@ -4,6 +4,7 @@ using McTools.Xrm.Connection;
 using Microsoft.Crm.Sdk.Messages;
 using Microsoft.Xrm.Sdk;
 using Microsoft.Xrm.Sdk.Messages;
+using Microsoft.Xrm.Sdk.Metadata;
 using Microsoft.Xrm.Sdk.Query;
 using System;
 using System.Collections.Generic;
@@ -130,6 +131,9 @@ namespace GM.XrmToolBox.UserRoleMatrix
         private ViewKey _selectedSystemUserView = ViewKey.All;
         private ViewKey _selectedTeamView = ViewKey.All;
 
+        // Cached entity metadata items for Privilege Discovery entity dropdown
+        private List<EntityMetadataItem> _cachedEntityMetadataItems;
+
         // Persist all owner team names (so Team dropdown can show all teams, not just those in grid)
         private OrgSettingStatus _orgSettingStatus = OrgSettingStatus.Unknown();
 
@@ -187,6 +191,7 @@ namespace GM.XrmToolBox.UserRoleMatrix
             };
 
             tsbAddUserRole.Click += (s, e) => ExecuteMethod(OpenAddUserRoleDialog);
+            tsbPrivilegeDiscovery.Click += (s, e) => ExecuteMethod(OpenPrivilegeDiscoveryForSelectedRow);
             tsbAddUserToTeam.Click += (s, e) => ExecuteMethod(OpenAddUserToTeamDialog);
             tsbDel.Click += (s, e) => ExecuteMethod(DeleteSelectedAssignments);
 
@@ -460,6 +465,9 @@ private void UpdateCountLabel(int filtered, int total)
             _bindingSource.DataSource = null;
 
             _currentMode = ModeNone;
+
+            CloseAllPrivilegeTabs();
+            _cachedEntityMetadataItems = null;
 
             SetSelectAllRecordsChecked(false);
             InitializeStaticFilters();
@@ -1852,6 +1860,1155 @@ private void DeleteSelectedAssignments()
             }
         }
 
+        // -----------------------
+        // Feature: Privileges Discovery
+        // -----------------------
+
+        private void OpenPrivilegeDiscoveryForSelectedRow()
+        {
+            if (Service == null)
+            {
+                MessageBox.Show("Not connected.", "Privileges Discovery", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            // If current tab is already a Privilege Discovery tab, reload it with current entity selection
+            if (tcMain.SelectedTab != null && tcMain.SelectedTab != tpMatrix && tcMain.SelectedTab.Tag is PrivilegeTabInfo existingInfo)
+            {
+                LoadPrivilegesForTab(tcMain.SelectedTab, existingInfo);
+                return;
+            }
+
+            // Get selected record from main grid
+            var selected = GetSelectedRecordFromGrid();
+            if (selected == null)
+            {
+                MessageBox.Show("Please select a row from the grid.", "Privileges Discovery", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            // If entity metadata not yet loaded, load it then create tab
+            if (_cachedEntityMetadataItems == null)
+            {
+                WorkAsync(new WorkAsyncInfo
+                {
+                    Message = "Loading entity metadata...",
+                    Work = (w, e) =>
+                    {
+                        e.Result = RetrieveAllEntityMetadataItems(Service);
+                    },
+                    PostWorkCallBack = e =>
+                    {
+                        if (e.Error != null)
+                        {
+                            ShowErrorDialog(e.Error);
+                            return;
+                        }
+
+                        _cachedEntityMetadataItems = (List<EntityMetadataItem>)e.Result;
+                        var tab = CreatePrivilegeTab(selected, _cachedEntityMetadataItems);
+                        tcMain.TabPages.Add(tab);
+                        tcMain.SelectedTab = tab;
+
+                        // Auto-load with default entity (account)
+                        var tabInfo = (PrivilegeTabInfo)tab.Tag;
+                        LoadPrivilegesForTab(tab, tabInfo);
+                    }
+                });
+            }
+            else
+            {
+                var tab = CreatePrivilegeTab(selected, _cachedEntityMetadataItems);
+                tcMain.TabPages.Add(tab);
+                tcMain.SelectedTab = tab;
+
+                var tabInfo = (PrivilegeTabInfo)tab.Tag;
+                LoadPrivilegesForTab(tab, tabInfo);
+            }
+        }
+
+        private SelectedRecordInfo GetSelectedRecordFromGrid()
+        {
+            if (dgvResults.CurrentRow == null) return null;
+
+            var drv = dgvResults.CurrentRow.DataBoundItem as DataRowView;
+            if (drv == null) return null;
+
+            var row = drv.Row;
+
+            if (_currentMode == ModeSystemUser)
+            {
+                var userId = row.Field<Guid?>("UserId") ?? Guid.Empty;
+                if (userId == Guid.Empty) return null;
+
+                var name = row.Field<string>("User") ?? "";
+                return new SelectedRecordInfo { Mode = ModeSystemUser, RecordId = userId, RecordName = name };
+            }
+
+            if (_currentMode == ModeTeam)
+            {
+                var teamId = row.Field<Guid?>("TeamId") ?? Guid.Empty;
+                if (teamId == Guid.Empty) return null;
+
+                var name = row.Field<string>("Team") ?? "";
+                return new SelectedRecordInfo { Mode = ModeTeam, RecordId = teamId, RecordName = name };
+            }
+
+            return null;
+        }
+
+        private TabPage CreatePrivilegeTab(SelectedRecordInfo selected, List<EntityMetadataItem> entityItems)
+        {
+            var modeLabel = selected.Mode == ModeSystemUser ? "User" : "Team";
+            var tabText = $"Privileges - {modeLabel}: {selected.RecordName}";
+
+            var tp = new TabPage(tabText) { UseVisualStyleBackColor = true };
+
+            // Top panel with entity dropdown + buttons
+            var panel = new Panel { Dock = DockStyle.Top, Height = 40 };
+
+            var lblEntity = new Label
+            {
+                Text = "Entity:",
+                Left = 8,
+                Top = 10,
+                Width = 50,
+                AutoSize = false,
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+
+            var cbEntity = new ComboBox
+            {
+                Left = 60,
+                Top = 8,
+                Width = 300,
+                DropDownStyle = ComboBoxStyle.DropDown,
+                AutoCompleteMode = AutoCompleteMode.SuggestAppend,
+                AutoCompleteSource = AutoCompleteSource.ListItems
+            };
+
+            foreach (var item in entityItems)
+            {
+                cbEntity.Items.Add(new EntityComboItem(item.LogicalName, item.DisplayName));
+            }
+
+            // Default selection: "account"
+            var defaultItem = cbEntity.Items
+                .OfType<EntityComboItem>()
+                .FirstOrDefault(x => string.Equals(x.LogicalName, "account", StringComparison.OrdinalIgnoreCase));
+            if (defaultItem != null)
+                cbEntity.SelectedItem = defaultItem;
+            else if (cbEntity.Items.Count > 0)
+                cbEntity.SelectedIndex = 0;
+
+            var btnLoad = new Button
+            {
+                Text = "Load",
+                Left = 370,
+                Top = 7,
+                Width = 70,
+                Height = 26
+            };
+
+            var btnClose = new Button
+            {
+                Text = "\u2715 Close",
+                Left = 450,
+                Top = 7,
+                Width = 70,
+                Height = 26
+            };
+
+            panel.Controls.Add(lblEntity);
+            panel.Controls.Add(cbEntity);
+            panel.Controls.Add(btnLoad);
+            panel.Controls.Add(btnClose);
+
+            // Grid for privilege matrix
+            var grid = new DataGridView
+            {
+                Dock = DockStyle.Fill,
+                AutoGenerateColumns = true,
+                AllowUserToAddRows = false,
+                AllowUserToDeleteRows = false,
+                ReadOnly = true,
+                SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                MultiSelect = false,
+                ColumnHeadersHeight = 29,
+                RowHeadersWidth = 51
+            };
+
+            grid.CellPainting += PrivilegeGrid_CellPainting;
+            grid.ShowCellToolTips = true;
+            grid.CellToolTipTextNeeded += PrivilegeGrid_CellToolTipTextNeeded;
+
+            tp.Controls.Add(grid);
+            tp.Controls.Add(panel);
+
+            var tabInfo = new PrivilegeTabInfo
+            {
+                Mode = selected.Mode,
+                RecordId = selected.RecordId,
+                RecordName = selected.RecordName,
+                EntityComboBox = cbEntity,
+                PrivilegeGrid = grid
+            };
+            tp.Tag = tabInfo;
+
+            btnLoad.Click += (s, e) =>
+            {
+                var info = (PrivilegeTabInfo)tp.Tag;
+                LoadPrivilegesForTab(tp, info);
+            };
+
+            btnClose.Click += (s, e) =>
+            {
+                ClosePrivilegeTab(tp);
+            };
+
+            return tp;
+        }
+
+        private void LoadPrivilegesForTab(TabPage tab, PrivilegeTabInfo tabInfo)
+        {
+            // Resolve selected entity
+            var entityItem = tabInfo.EntityComboBox.SelectedItem as EntityComboItem;
+            if (entityItem == null)
+            {
+                // Try matching by text
+                var text = (tabInfo.EntityComboBox.Text ?? "").Trim();
+                if (text.Length > 0)
+                {
+                    entityItem = tabInfo.EntityComboBox.Items
+                        .OfType<EntityComboItem>()
+                        .FirstOrDefault(x => string.Equals(x.ToString(), text, StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(x.LogicalName, text, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (entityItem == null)
+                {
+                    MessageBox.Show("Please select an entity.", "Privileges Discovery", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                tabInfo.EntityComboBox.SelectedItem = entityItem;
+            }
+
+            var entityLogicalName = entityItem.LogicalName;
+            var mode = tabInfo.Mode;
+            var recordId = tabInfo.RecordId;
+            var grid = tabInfo.PrivilegeGrid;
+
+            grid.DataSource = null;
+
+            WorkAsync(new WorkAsyncInfo
+            {
+                Message = $"Loading privileges for {entityLogicalName}...",
+                Work = (w, e) =>
+                {
+                    // 1) Retrieve entity privileges metadata
+                    w.ReportProgress(0, $"Retrieving metadata for {entityLogicalName}...");
+                    var entityPrivileges = RetrieveEntityPrivileges(Service, entityLogicalName);
+
+                    // 2) Retrieve roles for the user or team
+                    w.ReportProgress(0, "Retrieving roles...");
+                    List<RoleInfo> roles;
+                    if (mode == ModeSystemUser)
+                        roles = RetrieveAllRolesForUser(Service, recordId);
+                    else
+                        roles = RetrieveAllRolesForTeam(Service, recordId);
+
+                    roles = NormalizeRolesToRoot(Service, roles);
+
+                    // 3) Retrieve role-privilege mappings
+                    w.ReportProgress(0, "Retrieving role privileges...");
+                    var roleIds = roles.Select(r => r.RoleId).Distinct().ToList();
+                    var privIds = entityPrivileges.Select(p => p.PrivilegeId).Distinct().ToList();
+
+                    var rolePrivileges = new List<RolePrivilegeItem>();
+                    if (roleIds.Count > 0 && privIds.Count > 0)
+                        rolePrivileges = RetrieveRolePrivilegesForRoles(Service, roleIds, privIds);
+
+                    e.Result = new PrivilegeDiscoveryResult
+                    {
+                        EntityLogicalName = entityLogicalName,
+                        Roles = roles,
+                        EntityPrivileges = entityPrivileges,
+                        RolePrivileges = rolePrivileges
+                    };
+                },
+                ProgressChanged = e =>
+                {
+                    if (e.UserState != null)
+                        SetWorkingMessage(e.UserState.ToString());
+                },
+                PostWorkCallBack = e =>
+                {
+                    if (e.Error != null)
+                    {
+                        ShowErrorDialog(e.Error);
+                        return;
+                    }
+
+                    var result = (PrivilegeDiscoveryResult)e.Result;
+
+                    BuildAndBindPrivilegeMatrix(grid, result);
+                }
+            });
+        }
+
+        private void BuildAndBindPrivilegeMatrix(DataGridView grid, PrivilegeDiscoveryResult result)
+        {
+            var dt = new DataTable("PrivilegeMatrix");
+            dt.Columns.Add("Role", typeof(string));
+
+            // Determine which privilege types exist for this entity
+            var privTypes = new[] { "Create", "Read", "Write", "Delete", "Append", "AppendTo", "Assign", "Share" };
+            var entityPrivsByType = new Dictionary<string, PrivilegeMetadataItem>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var ep in result.EntityPrivileges)
+            {
+                if (!string.IsNullOrWhiteSpace(ep.PrivilegeType) && !entityPrivsByType.ContainsKey(ep.PrivilegeType))
+                    entityPrivsByType[ep.PrivilegeType] = ep;
+            }
+
+            var activePrivTypes = new List<string>();
+            foreach (var pt in privTypes)
+            {
+                if (entityPrivsByType.ContainsKey(pt))
+                {
+                    activePrivTypes.Add(pt);
+                    dt.Columns.Add(pt, typeof(int));
+                }
+            }
+
+            // Build lookup: (roleId, privilegeId) -> depth
+            var depthLookup = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var rp in result.RolePrivileges)
+            {
+                var key = $"{rp.RoleId:N}|{rp.PrivilegeId:N}";
+                if (!depthLookup.ContainsKey(key))
+                    depthLookup[key] = rp.DepthMask;
+                else
+                {
+                    // Keep highest depth
+                    if (rp.DepthMask > depthLookup[key])
+                        depthLookup[key] = rp.DepthMask;
+                }
+            }
+
+            // One row per role
+            foreach (var role in result.Roles.OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                var dr = dt.NewRow();
+                dr["Role"] = role.Name ?? "";
+
+                foreach (var pt in activePrivTypes)
+                {
+                    if (!entityPrivsByType.TryGetValue(pt, out var privMeta))
+                    {
+                        dr[pt] = "";
+                        continue;
+                    }
+
+                    var lookupKey = $"{role.RoleId:N}|{privMeta.PrivilegeId:N}";
+                    if (depthLookup.TryGetValue(lookupKey, out var depth) && depth >= 1)
+                        dr[pt] = depth;
+                    else
+                        dr[pt] = 0;
+                }
+
+                dt.Rows.Add(dr);
+            }
+
+            grid.DataSource = dt;
+
+            // Configure columns
+            if (grid.Columns["Role"] != null)
+            {
+                grid.Columns["Role"].Width = 250;
+                grid.Columns["Role"].AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+            }
+
+            foreach (DataGridViewColumn col in grid.Columns)
+            {
+                if (!string.Equals(col.Name, "Role", StringComparison.OrdinalIgnoreCase))
+                {
+                    col.Width = 90;
+                    col.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
+                    col.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+                }
+            }
+        }
+
+        private static string DepthToText(int depthMask)
+        {
+            switch (depthMask)
+            {
+                case 1: return "User";
+                case 2: return "Business Unit";
+                case 4: return "Parent: Child Business Unit";
+                case 8: return "Organization";
+                default: return depthMask.ToString(CultureInfo.InvariantCulture);
+            }
+        }
+
+        private static Color DepthToIconColor(int depthMask)
+        {
+            switch (depthMask)
+            {
+                case 1: return Color.FromArgb(90, 90, 90);     // Dark gray – User
+                case 2: return Color.FromArgb(0, 120, 215);    // Blue – Business Unit
+                case 4: return Color.FromArgb(200, 55, 55);    // Red – Parent:Child BU
+                case 8: return Color.FromArgb(16, 137, 62);    // Green – Organization
+                default: return Color.FromArgb(200, 55, 55);   // Red – None (no-entry)
+            }
+        }
+
+        private void PrivilegeGrid_CellPainting(object sender, DataGridViewCellPaintingEventArgs e)
+        {
+            var grid = sender as DataGridView;
+            if (grid == null || e.ColumnIndex < 0 || e.RowIndex < 0) return;
+
+            var colName = grid.Columns[e.ColumnIndex].Name;
+            if (string.Equals(colName, "Role", StringComparison.OrdinalIgnoreCase)) return;
+
+            int depth = 0;
+            if (e.Value != null && e.Value != DBNull.Value)
+            {
+                if (e.Value is int intVal)
+                    depth = intVal;
+                else
+                    int.TryParse(e.Value.ToString(), out depth);
+            }
+
+            e.Paint(e.CellBounds, DataGridViewPaintParts.Background | DataGridViewPaintParts.Border | DataGridViewPaintParts.SelectionBackground);
+
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+            const int iconSize = 16;
+            const int horizontalPadding = 3;
+            const int verticalPadding = 2;
+            int cx = e.CellBounds.Left + horizontalPadding + ((e.CellBounds.Width - (horizontalPadding * 2)) / 2);
+            int cy = e.CellBounds.Top + verticalPadding + ((e.CellBounds.Height - (verticalPadding * 2)) / 2);
+
+            var iconColor = DepthToIconColor(depth);
+
+            switch (depth)
+            {
+                case 1:
+                    DrawPersonIcon(g, iconColor, cx, cy, iconSize);
+                    break;
+                case 2:
+                    DrawBusinessUnitIcon(g, iconColor, cx, cy, iconSize);
+                    break;
+                case 4:
+                    DrawParentChildBusinessUnitIcon(g, iconColor, cx, cy, iconSize);
+                    break;
+                case 8:
+                    DrawHierarchyIcon(g, iconColor, cx, cy, iconSize);
+                    break;
+                default:
+                    DrawNoEntryIcon(g, iconColor, cx, cy, iconSize);
+                    break;
+            }
+
+            e.Handled = true;
+        }
+
+        private static void DrawPersonIcon(Graphics g, Color color, int cx, int cy, int size)
+        {
+            var headSize = Math.Max(size / 3, 4);
+            var bodyWidth = Math.Max((int)(size * 0.62f), 7);
+            var bodyHeight = Math.Max((int)(size * 0.38f), 5);
+            var headTop = cy - size / 2 + 1;
+            var headRect = new Rectangle(cx - headSize / 2, headTop, headSize, headSize);
+            var bodyRect = new Rectangle(cx - bodyWidth / 2, headRect.Bottom - 1, bodyWidth, bodyHeight);
+
+            using (var pen = new Pen(color, 1.2f))
+            {
+                pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                g.DrawEllipse(pen, headRect);
+                g.DrawArc(pen, bodyRect, 200, 140);
+            }
+        }
+
+        private static void DrawBusinessUnitIcon(Graphics g, Color color, int cx, int cy, int size)
+        {
+            DrawPersonIcon(g, color, cx, cy - 2, size - 1);
+            DrawPersonIcon(g, color, cx - 6, cy + 3, size - 7);
+            DrawPersonIcon(g, color, cx + 6, cy + 3, size - 7);
+        }
+
+        private static void DrawParentChildBusinessUnitIcon(Graphics g, Color color, int cx, int cy, int size)
+        {
+            using (var pen = new Pen(color, 1.1f))
+            {
+                pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                var topAnchorY = cy - 2;
+                var branchY = cy + 1;
+                var leftX = cx - 5;
+                var rightX = cx + 5;
+
+                g.DrawLine(pen, cx, topAnchorY, cx, branchY);
+                g.DrawLine(pen, leftX, branchY, rightX, branchY);
+                g.DrawLine(pen, leftX, branchY, leftX, cy + 4);
+                g.DrawLine(pen, rightX, branchY, rightX, cy + 4);
+            }
+
+            DrawPersonIcon(g, color, cx, cy - 5, size - 8);
+            DrawPersonIcon(g, color, cx - 5, cy + 4, size - 9);
+            DrawPersonIcon(g, color, cx + 5, cy + 4, size - 9);
+        }
+
+        private static void DrawHierarchyIcon(Graphics g, Color color, int cx, int cy, int size)
+        {
+            var boxW = 5;
+            var boxH = 4;
+            var topBox = new Rectangle(cx - boxW / 2, cy - size / 2 + 1, boxW, boxH);
+            var leftBox = new Rectangle(cx - 7 - boxW / 2, cy + size / 2 - boxH - 1, boxW, boxH);
+            var midBox = new Rectangle(cx - boxW / 2, cy + size / 2 - boxH - 1, boxW, boxH);
+            var rightBox = new Rectangle(cx + 7 - boxW / 2, cy + size / 2 - boxH - 1, boxW, boxH);
+            var branchY = cy - 1;
+
+            using (var pen = new Pen(color, 1.1f))
+            {
+                pen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                g.DrawRectangle(pen, topBox);
+                g.DrawRectangle(pen, leftBox);
+                g.DrawRectangle(pen, midBox);
+                g.DrawRectangle(pen, rightBox);
+
+                g.DrawLine(pen, cx, topBox.Bottom, cx, branchY);
+                g.DrawLine(pen, leftBox.X + leftBox.Width / 2, branchY, rightBox.X + rightBox.Width / 2, branchY);
+                g.DrawLine(pen, leftBox.X + leftBox.Width / 2, branchY, leftBox.X + leftBox.Width / 2, leftBox.Y);
+                g.DrawLine(pen, midBox.X + midBox.Width / 2, branchY, midBox.X + midBox.Width / 2, midBox.Y);
+                g.DrawLine(pen, rightBox.X + rightBox.Width / 2, branchY, rightBox.X + rightBox.Width / 2, rightBox.Y);
+            }
+        }
+
+        private static void DrawNoEntryIcon(Graphics g, Color color, int cx, int cy, int size)
+        {
+            int r = size / 2 - 2;
+            var rect = new Rectangle(cx - r, cy - r, r * 2, r * 2);
+
+            using (var pen = new Pen(color, 1.4f))
+            {
+                pen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                pen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
+                g.DrawEllipse(pen, rect);
+                g.DrawLine(pen, cx - r + 2, cy - r + 2, cx + r - 2, cy + r - 2);
+            }
+        }
+
+        private void PrivilegeGrid_CellToolTipTextNeeded(object sender, DataGridViewCellToolTipTextNeededEventArgs e)
+        {
+            var grid = sender as DataGridView;
+            if (grid == null || e.ColumnIndex < 0 || e.RowIndex < 0) return;
+
+            var colName = grid.Columns[e.ColumnIndex].Name;
+            if (string.Equals(colName, "Role", StringComparison.OrdinalIgnoreCase)) return;
+
+            int depth = 0;
+            var cellValue = grid.Rows[e.RowIndex].Cells[e.ColumnIndex].Value;
+            if (cellValue != null && cellValue != DBNull.Value)
+            {
+                if (cellValue is int intVal)
+                    depth = intVal;
+                else
+                    int.TryParse(cellValue.ToString(), out depth);
+            }
+
+            e.ToolTipText = depth >= 1 ? DepthToText(depth) : "None";
+        }
+
+        private void ClosePrivilegeTab(TabPage tab)
+        {
+            if (tab == null || tab == tpMatrix) return;
+
+            tcMain.TabPages.Remove(tab);
+            tab.Dispose();
+        }
+
+        private void CloseAllPrivilegeTabs()
+        {
+            var toRemove = new List<TabPage>();
+            foreach (TabPage tp in tcMain.TabPages)
+            {
+                if (tp != tpMatrix)
+                    toRemove.Add(tp);
+            }
+
+            foreach (var tp in toRemove)
+            {
+                tcMain.TabPages.Remove(tp);
+                tp.Dispose();
+            }
+        }
+
+        // -----------------------
+        // Privileges Discovery: Data Retrieval
+        // -----------------------
+        private static List<EntityMetadataItem> RetrieveAllEntityMetadataItems(IOrganizationService svc)
+        {
+            var req = new RetrieveAllEntitiesRequest
+            {
+                EntityFilters = EntityFilters.Entity,
+                RetrieveAsIfPublished = true
+            };
+
+            var resp = (RetrieveAllEntitiesResponse)svc.Execute(req);
+
+            var list = new List<EntityMetadataItem>();
+            foreach (var em in resp.EntityMetadata)
+            {
+                if (em.IsPrivate == true || em.IsIntersect == true)
+                    continue;
+
+                var displayName = em.DisplayName?.UserLocalizedLabel?.Label;
+                if (string.IsNullOrWhiteSpace(displayName))
+                    displayName = em.LogicalName;
+
+                list.Add(new EntityMetadataItem
+                {
+                    LogicalName = em.LogicalName,
+                    DisplayName = displayName
+                });
+            }
+
+            return list.OrderBy(x => x.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        private static List<PrivilegeMetadataItem> RetrieveEntityPrivileges(IOrganizationService svc, string entityLogicalName)
+        {
+            var req = new RetrieveEntityRequest
+            {
+                LogicalName = entityLogicalName,
+                EntityFilters = EntityFilters.Privileges,
+                RetrieveAsIfPublished = true
+            };
+
+            var resp = (RetrieveEntityResponse)svc.Execute(req);
+            var privileges = resp.EntityMetadata.Privileges;
+
+            if (privileges == null || privileges.Length == 0)
+                return new List<PrivilegeMetadataItem>();
+
+            var list = new List<PrivilegeMetadataItem>();
+            foreach (var sp in privileges)
+            {
+                var privType = sp.PrivilegeType.ToString();
+
+                list.Add(new PrivilegeMetadataItem
+                {
+                    PrivilegeId = sp.PrivilegeId,
+                    Name = sp.Name,
+                    PrivilegeType = privType
+                });
+            }
+
+            return list;
+        }
+
+        private static List<RoleInfo> RetrieveAllRolesForUser(IOrganizationService svc, Guid userId)
+        {
+            var roles = new Dictionary<Guid, RoleInfo>();
+
+            // 1) Direct roles via systemuserroles
+            var qeDirect = new QueryExpression("systemuserroles")
+            {
+                ColumnSet = new ColumnSet("systemuserid", "roleid"),
+                NoLock = true
+            };
+            qeDirect.Criteria.AddCondition("systemuserid", ConditionOperator.Equal, userId);
+
+            var roleLink = qeDirect.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
+            roleLink.EntityAlias = "role";
+            roleLink.Columns = new ColumnSet("name", "businessunitid", "parentroleid");
+
+            var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+            roleBuLink.EntityAlias = "rolebu";
+            roleBuLink.Columns = new ColumnSet("name");
+
+            var directEc = RetrieveAll(svc, qeDirect);
+            foreach (var e in directEc.Entities)
+            {
+                var roleId = GetIdFromAttribute(e, "roleid");
+                if (roleId == Guid.Empty) continue;
+
+                if (!roles.ContainsKey(roleId))
+                {
+                    roles[roleId] = new RoleInfo
+                    {
+                        RoleId = roleId,
+                        Name = GetAliasedString(e, "role", "name"),
+                        BusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                        ParentRoleId = GetAliasedEntityRefId(e, "role", "parentroleid")
+                    };
+                }
+            }
+
+            // 2) Team roles via teammembership -> teamroles
+            var qeMember = new QueryExpression("teammembership")
+            {
+                ColumnSet = new ColumnSet("teamid"),
+                NoLock = true
+            };
+            qeMember.Criteria.AddCondition("systemuserid", ConditionOperator.Equal, userId);
+
+            var teamLink = qeMember.AddLink("team", "teamid", "teamid", JoinOperator.Inner);
+            teamLink.EntityAlias = "team";
+            teamLink.Columns = new ColumnSet("teamtype");
+            teamLink.LinkCriteria.AddCondition("teamtype", ConditionOperator.Equal, 0); // Owner Teams
+
+            var memberEc = RetrieveAll(svc, qeMember);
+
+            var teamIds = memberEc.Entities
+                .Select(e => GetIdFromAttribute(e, "teamid"))
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList();
+
+            if (teamIds.Count > 0)
+            {
+                const int chunkSize = 500;
+                foreach (var chunk in ChunkGuids(teamIds, chunkSize))
+                {
+                    var qeTeamRoles = new QueryExpression("teamroles")
+                    {
+                        ColumnSet = new ColumnSet("teamid", "roleid"),
+                        NoLock = true
+                    };
+                    qeTeamRoles.Criteria.AddCondition("teamid", ConditionOperator.In, chunk.Cast<object>().ToArray());
+
+                    var trRoleLink = qeTeamRoles.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
+                    trRoleLink.EntityAlias = "role";
+                    trRoleLink.Columns = new ColumnSet("name", "businessunitid", "parentroleid");
+
+                    var trRoleBuLink = trRoleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                    trRoleBuLink.EntityAlias = "rolebu";
+                    trRoleBuLink.Columns = new ColumnSet("name");
+
+                    var teamRoleEc = RetrieveAll(svc, qeTeamRoles);
+                    foreach (var e in teamRoleEc.Entities)
+                    {
+                        var roleId = GetIdFromAttribute(e, "roleid");
+                        if (roleId == Guid.Empty) continue;
+
+                        if (!roles.ContainsKey(roleId))
+                        {
+                            roles[roleId] = new RoleInfo
+                            {
+                                RoleId = roleId,
+                                Name = GetAliasedString(e, "role", "name"),
+                                BusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                                ParentRoleId = GetAliasedEntityRefId(e, "role", "parentroleid")
+                            };
+                        }
+                    }
+                }
+            }
+
+            return roles.Values.ToList();
+        }
+
+        private static List<RoleInfo> RetrieveAllRolesForTeam(IOrganizationService svc, Guid teamId)
+        {
+            var roles = new Dictionary<Guid, RoleInfo>();
+
+            var qe = new QueryExpression("teamroles")
+            {
+                ColumnSet = new ColumnSet("teamid", "roleid"),
+                NoLock = true
+            };
+            qe.Criteria.AddCondition("teamid", ConditionOperator.Equal, teamId);
+
+            var roleLink = qe.AddLink("role", "roleid", "roleid", JoinOperator.Inner);
+            roleLink.EntityAlias = "role";
+            roleLink.Columns = new ColumnSet("name", "businessunitid", "parentroleid");
+
+            var roleBuLink = roleLink.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+            roleBuLink.EntityAlias = "rolebu";
+            roleBuLink.Columns = new ColumnSet("name");
+
+            var ec = RetrieveAll(svc, qe);
+            foreach (var e in ec.Entities)
+            {
+                var roleId = GetIdFromAttribute(e, "roleid");
+                if (roleId == Guid.Empty) continue;
+
+                if (!roles.ContainsKey(roleId))
+                {
+                    roles[roleId] = new RoleInfo
+                    {
+                        RoleId = roleId,
+                        Name = GetAliasedString(e, "role", "name"),
+                        BusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                        ParentRoleId = GetAliasedEntityRefId(e, "role", "parentroleid")
+                    };
+                }
+            }
+
+            return roles.Values.ToList();
+        }
+
+        private static List<RoleInfo> NormalizeRolesToRoot(IOrganizationService svc, List<RoleInfo> roles)
+        {
+            if (roles == null || roles.Count == 0)
+                return new List<RoleInfo>();
+
+            var rootIds = ResolveRootRoleIds(svc, roles
+                .Select(r => r.ParentRoleId != Guid.Empty ? r.ParentRoleId : r.RoleId)
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList());
+
+            var roots = new Dictionary<Guid, RoleInfo>();
+
+            foreach (var chunk in ChunkGuids(rootIds, 500))
+            {
+                var qe = new QueryExpression("role")
+                {
+                    ColumnSet = new ColumnSet("roleid", "name", "businessunitid", "parentroleid"),
+                    NoLock = true
+                };
+                qe.Criteria.AddCondition("roleid", ConditionOperator.In, chunk.Cast<object>().ToArray());
+
+                var roleBuLink = qe.AddLink("businessunit", "businessunitid", "businessunitid", JoinOperator.LeftOuter);
+                roleBuLink.EntityAlias = "rolebu";
+                roleBuLink.Columns = new ColumnSet("name");
+
+                var ec = RetrieveAll(svc, qe);
+                foreach (var e in ec.Entities)
+                {
+                    roots[e.Id] = new RoleInfo
+                    {
+                        RoleId = e.Id,
+                        Name = e.GetAttributeValue<string>("name"),
+                        BusinessUnitName = GetAliasedString(e, "rolebu", "name"),
+                        ParentRoleId = e.GetAttributeValue<EntityReference>("parentroleid")?.Id ?? Guid.Empty
+                    };
+                }
+            }
+
+            return roles
+                .GroupBy(r => r.ParentRoleId != Guid.Empty ? r.ParentRoleId : r.RoleId)
+                .Select(g =>
+                {
+                    if (roots.TryGetValue(g.Key, out var root))
+                        return root;
+
+                    var sample = g.First();
+                    return new RoleInfo
+                    {
+                        RoleId = g.Key != Guid.Empty ? g.Key : sample.RoleId,
+                        Name = sample.Name,
+                        BusinessUnitName = sample.BusinessUnitName,
+                        ParentRoleId = Guid.Empty
+                    };
+                })
+                .ToList();
+        }
+
+        private static List<Guid> ResolveRootRoleIds(IOrganizationService svc, List<Guid> roleIds)
+        {
+            if (roleIds == null || roleIds.Count == 0)
+                return new List<Guid>();
+
+            var resolved = roleIds
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToDictionary(id => id, id => id);
+
+            var pending = resolved.Keys.ToList();
+            var safety = 0;
+
+            while (pending.Count > 0 && safety < 20)
+            {
+                safety++;
+
+                var nextPending = new List<Guid>();
+
+                foreach (var chunk in ChunkGuids(pending, 500))
+                {
+                    var qe = new QueryExpression("role")
+                    {
+                        ColumnSet = new ColumnSet("roleid", "parentroleid"),
+                        NoLock = true
+                    };
+                    qe.Criteria.AddCondition("roleid", ConditionOperator.In, chunk.Cast<object>().ToArray());
+
+                    var ec = RetrieveAll(svc, qe);
+                    foreach (var e in ec.Entities)
+                    {
+                        var roleId = e.Id;
+                        var parentId = e.GetAttributeValue<EntityReference>("parentroleid")?.Id ?? Guid.Empty;
+
+                        if (parentId != Guid.Empty && parentId != roleId)
+                        {
+                            resolved[roleId] = parentId;
+                            nextPending.Add(parentId);
+                        }
+                    }
+                }
+
+                pending = nextPending
+                    .Where(id => id != Guid.Empty)
+                    .Distinct()
+                    .Except(resolved.Where(kvp => kvp.Key == kvp.Value).Select(kvp => kvp.Key))
+                    .ToList();
+            }
+
+            var finalMap = new Dictionary<Guid, Guid>();
+            foreach (var originalId in roleIds.Where(id => id != Guid.Empty).Distinct())
+            {
+                var current = originalId;
+                var seen = new HashSet<Guid>();
+
+                while (resolved.TryGetValue(current, out var parentId)
+                    && parentId != Guid.Empty
+                    && parentId != current
+                    && seen.Add(current))
+                {
+                    current = parentId;
+                }
+
+                finalMap[originalId] = current;
+            }
+
+            return finalMap.Values
+                .Where(id => id != Guid.Empty)
+                .Distinct()
+                .ToList();
+        }
+
+        private static List<RolePrivilegeItem> RetrieveRolePrivilegesForRoles(
+            IOrganizationService svc,
+            List<Guid> roleIds,
+            List<Guid> privilegeIds)
+        {
+            var results = new List<RolePrivilegeItem>();
+            if (roleIds == null || roleIds.Count == 0 || privilegeIds == null || privilegeIds.Count == 0)
+                return results;
+
+            const int chunkSize = 500;
+
+            // Use FetchExpression to query the roleprivileges intersect entity.
+            // QueryExpression (direct or via link entity) may not return the
+            // privilegedepthmask column from intersect entities in all Dataverse
+            // environments. FetchXml reliably exposes all intersect attributes.
+            results = FetchRolePrivileges(svc, roleIds, privilegeIds, chunkSize);
+
+            // Fallback: for roles with no results, resolve to parent (root BU)
+            // role IDs and retry. In Dataverse, child BU role copies share the
+            // same privilege configuration as their root role.
+            var rolesWithResults = new HashSet<Guid>(results.Select(r => r.RoleId));
+            var rolesWithoutResults = roleIds
+                .Where(id => id != Guid.Empty && !rolesWithResults.Contains(id))
+                .Distinct()
+                .ToList();
+
+            if (rolesWithoutResults.Count > 0)
+            {
+                var childToParent = new Dictionary<Guid, Guid>();
+                foreach (var chunk in ChunkGuids(rolesWithoutResults, chunkSize))
+                {
+                    var qeRole = new QueryExpression("role")
+                    {
+                        ColumnSet = new ColumnSet("roleid", "parentroleid"),
+                        NoLock = true
+                    };
+                    qeRole.Criteria.AddCondition("roleid", ConditionOperator.In, chunk.Cast<object>().ToArray());
+
+                    var roleEc = RetrieveAll(svc, qeRole);
+                    foreach (var e in roleEc.Entities)
+                    {
+                        var parentRef = e.GetAttributeValue<EntityReference>("parentroleid");
+                        if (parentRef != null && parentRef.Id != Guid.Empty && parentRef.Id != e.Id)
+                            childToParent[e.Id] = parentRef.Id;
+                    }
+                }
+
+                if (childToParent.Count > 0)
+                {
+                    var parentIds = childToParent.Values.Distinct().ToList();
+                    var parentResults = FetchRolePrivileges(svc, parentIds, privilegeIds, chunkSize);
+
+                    // Build reverse map: parentId -> list of childIds
+                    var parentToChildren = new Dictionary<Guid, List<Guid>>();
+                    foreach (var kvp in childToParent)
+                    {
+                        if (!parentToChildren.TryGetValue(kvp.Value, out var list))
+                        {
+                            list = new List<Guid>();
+                            parentToChildren[kvp.Value] = list;
+                        }
+                        list.Add(kvp.Key);
+                    }
+
+                    foreach (var pr in parentResults)
+                    {
+                        if (parentToChildren.TryGetValue(pr.RoleId, out var children))
+                        {
+                            foreach (var childId in children)
+                            {
+                                results.Add(new RolePrivilegeItem
+                                {
+                                    RoleId = childId,
+                                    PrivilegeId = pr.PrivilegeId,
+                                    DepthMask = pr.DepthMask
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        private static List<RolePrivilegeItem> FetchRolePrivileges(
+            IOrganizationService svc,
+            List<Guid> roleIds,
+            List<Guid> privilegeIds,
+            int chunkSize)
+        {
+            var results = new List<RolePrivilegeItem>();
+
+            // Use the standard N:N intersect query pattern in FetchXml.
+            // Query 'privilege' as main entity with 'roleprivileges' as an
+            // intersect link-entity (intersect='true') and 'role' as a
+            // nested filter. This reliably returns intersect attributes
+            // like privilegedepthmask across all Dataverse environments,
+            // including child-BU role copies.
+            foreach (var roleChunk in ChunkGuids(roleIds, chunkSize))
+            {
+                foreach (var privChunk in ChunkGuids(privilegeIds, chunkSize))
+                {
+                    var roleValues = string.Join("", roleChunk.Select(id => $"<value>{id}</value>"));
+                    var privValues = string.Join("", privChunk.Select(id => $"<value>{id}</value>"));
+
+                    var fetchXml =
+                        "<fetch no-lock='true'>" +
+                        "  <entity name='privilege'>" +
+                        "    <attribute name='privilegeid' />" +
+                        "    <filter>" +
+                        "      <condition attribute='privilegeid' operator='in'>" +
+                                 privValues +
+                        "      </condition>" +
+                        "    </filter>" +
+                        "    <link-entity name='roleprivileges' from='privilegeid' to='privilegeid' visible='false' intersect='true' alias='rp'>" +
+                        "      <attribute name='privilegedepthmask' />" +
+                        "      <attribute name='roleid' />" +
+                        "      <link-entity name='role' from='roleid' to='roleid'>" +
+                        "        <filter>" +
+                        "          <condition attribute='roleid' operator='in'>" +
+                                     roleValues +
+                        "          </condition>" +
+                        "        </filter>" +
+                        "      </link-entity>" +
+                        "    </link-entity>" +
+                        "  </entity>" +
+                        "</fetch>";
+
+                    var ec = svc.RetrieveMultiple(new FetchExpression(fetchXml));
+
+                    foreach (var e in ec.Entities)
+                    {
+                        var privId = e.Id;
+
+                        var roleId = Guid.Empty;
+                        var roleAv = e.GetAttributeValue<AliasedValue>("rp.roleid");
+                        if (roleAv?.Value is Guid rg) roleId = rg;
+
+                        var depth = 0;
+                        var depthAv = e.GetAttributeValue<AliasedValue>("rp.privilegedepthmask");
+                        if (depthAv?.Value is int di) depth = di;
+                        else if (depthAv?.Value is long dl) depth = (int)dl;
+                        else if (depthAv?.Value != null) int.TryParse(depthAv.Value.ToString(), out depth);
+
+                        if (roleId == Guid.Empty || privId == Guid.Empty) continue;
+
+                        results.Add(new RolePrivilegeItem
+                        {
+                            RoleId = roleId,
+                            PrivilegeId = privId,
+                            DepthMask = depth
+                        });
+                    }
+                }
+            }
+
+            return results;
+        }
+
+        // -----------------------
+        // Privileges Discovery: Data Model classes
+        // -----------------------
+        private sealed class SelectedRecordInfo
+        {
+            public string Mode { get; set; }
+            public Guid RecordId { get; set; }
+            public string RecordName { get; set; }
+        }
+
+        private sealed class PrivilegeTabInfo
+        {
+            public string Mode { get; set; }
+            public Guid RecordId { get; set; }
+            public string RecordName { get; set; }
+            public ComboBox EntityComboBox { get; set; }
+            public DataGridView PrivilegeGrid { get; set; }
+        }
+
+        private sealed class EntityMetadataItem
+        {
+            public string LogicalName { get; set; }
+            public string DisplayName { get; set; }
+        }
+
+        private sealed class EntityComboItem
+        {
+            public string LogicalName { get; }
+            public string DisplayText { get; }
+
+            public EntityComboItem(string logicalName, string displayName)
+            {
+                LogicalName = logicalName;
+                DisplayText = string.IsNullOrWhiteSpace(displayName)
+                    ? logicalName
+                    : $"{displayName} ({logicalName})";
+            }
+
+            public override string ToString() => DisplayText;
+        }
+
+        private sealed class PrivilegeMetadataItem
+        {
+            public Guid PrivilegeId { get; set; }
+            public string Name { get; set; }
+            public string PrivilegeType { get; set; }
+        }
+
+        private sealed class RolePrivilegeItem
+        {
+            public Guid RoleId { get; set; }
+            public Guid PrivilegeId { get; set; }
+            public int DepthMask { get; set; }
+        }
+
+        private sealed class PrivilegeDiscoveryResult
+        {
+            public string EntityLogicalName { get; set; }
+            public List<RoleInfo> Roles { get; set; }
+            public List<PrivilegeMetadataItem> EntityPrivileges { get; set; }
+            public List<RolePrivilegeItem> RolePrivileges { get; set; }
+        }
+
         private sealed class LoadResult
         {
             public List<MatrixRow> Rows { get; set; }
@@ -3188,6 +4345,16 @@ private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationServ
             return val?.Value as string;
         }
 
+        private static Guid GetAliasedEntityRefId(Entity e, string alias, string attributeName)
+        {
+            var key = $"{alias}.{attributeName}";
+            if (!e.Attributes.ContainsKey(key)) return Guid.Empty;
+            var val = e.Attributes[key] as AliasedValue;
+            if (val?.Value is EntityReference er) return er.Id;
+            if (val?.Value is Guid g) return g;
+            return Guid.Empty;
+        }
+
         private static bool? GetAliasedBoolean(Entity e, string alias, string attributeName)
         {
             var key = $"{alias}.{attributeName}";
@@ -3303,6 +4470,7 @@ private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationServ
             public Guid RoleId { get; set; }
             public string Name { get; set; }
             public string BusinessUnitName { get; set; }
+            public Guid ParentRoleId { get; set; }
         }
 
         private sealed class OwnerTeamInfo
