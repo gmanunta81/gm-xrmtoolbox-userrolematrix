@@ -1104,7 +1104,10 @@ private void DeleteSelectedAssignments()
                 var total = _table?.Rows.Count ?? 0;
                 UpdateCountLabel(filtered, total);
             }
-
+            var selectedRecord = GetSelectedRecordFromGrid();
+            var preselectedUserId = selectedRecord != null && selectedRecord.Mode == ModeSystemUser
+                ? selectedRecord.RecordId
+                : Guid.Empty;
             WorkAsync(new WorkAsyncInfo
             {
                 Message = "Loading users and business units...",
@@ -1140,7 +1143,8 @@ private void DeleteSelectedAssignments()
                         enableAcrossBuEnabled: _orgSettingStatus.EnableOwnershipAcrossBusinessUnits,
                         users: data.Users,
                         businessUnits: data.BusinessUnits,
-                        rootBusinessUnit: data.RootBusinessUnit))
+                        rootBusinessUnit: data.RootBusinessUnit,
+                        preselectedUserId: preselectedUserId))
                     {
                         var result = dlg.ShowDialog(this);
                         if (result == DialogResult.OK)
@@ -1167,7 +1171,7 @@ private void DeleteSelectedAssignments()
             private readonly List<UserInfo> _users;
             private readonly List<BusinessUnitInfo> _businessUnits;
             private readonly BusinessUnitInfo _rootBusinessUnit;
-
+            private readonly Guid _preselectedUserId;
             private readonly ComboBox _cbUser = new ComboBox();
             private readonly ComboBox _cbBusinessUnit = new ComboBox();
             private readonly ComboBox _cbRole = new ComboBox();
@@ -1180,13 +1184,15 @@ private void DeleteSelectedAssignments()
                 bool enableAcrossBuEnabled,
                 List<UserInfo> users,
                 List<BusinessUnitInfo> businessUnits,
-                BusinessUnitInfo rootBusinessUnit)
+                BusinessUnitInfo rootBusinessUnit,
+                Guid preselectedUserId)
             {
                 _service = service ?? throw new ArgumentNullException(nameof(service));
                 _enableAcrossBuEnabled = enableAcrossBuEnabled;
                 _users = users ?? new List<UserInfo>();
                 _businessUnits = businessUnits ?? new List<BusinessUnitInfo>();
                 _rootBusinessUnit = rootBusinessUnit;
+                _preselectedUserId = preselectedUserId;
 
                 Text = "Add User Role";
                 StartPosition = FormStartPosition.CenterParent;
@@ -1272,26 +1278,24 @@ private void DeleteSelectedAssignments()
 
                 // Business Units
                 _cbBusinessUnit.Items.Clear();
+                foreach (var bu in _businessUnits.OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase))
+                    _cbBusinessUnit.Items.Add(new ComboItem(bu.BusinessUnitId, bu.Name));
 
-                if (!_enableAcrossBuEnabled)
+                _cbBusinessUnit.Enabled = _enableAcrossBuEnabled;
+                _toolTip.SetToolTip(_cbBusinessUnit, _enableAcrossBuEnabled ? string.Empty : "dborgsetting inactive");
+
+                var preselectedUserItem = _preselectedUserId == Guid.Empty
+                    ? null
+                    : _cbUser.Items
+                        .Cast<object>()
+                        .OfType<ComboItem>()
+                        .FirstOrDefault(x => x.Id == _preselectedUserId);
+
+                if (preselectedUserItem != null)
                 {
-                    // Requirement: BU dropdown not selectable, tooltip "dborgsetting inactive", show only root BU.
-                    _cbBusinessUnit.Enabled = false;
-                    _toolTip.SetToolTip(_cbBusinessUnit, "dborgsetting inactive");
-
-                    if (_rootBusinessUnit != null)
-                        _cbBusinessUnit.Items.Add(new ComboItem(_rootBusinessUnit.BusinessUnitId, _rootBusinessUnit.Name));
+                    _cbUser.SelectedItem = preselectedUserItem;
                 }
-                else
-                {
-                    _cbBusinessUnit.Enabled = true;
-
-                    foreach (var bu in _businessUnits.OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase))
-                        _cbBusinessUnit.Items.Add(new ComboItem(bu.BusinessUnitId, bu.Name));
-                }
-
-                // Select root BU by default and auto-load root roles
-                if (_rootBusinessUnit != null)
+                else if (_rootBusinessUnit != null)
                 {
                     var rootItem = _cbBusinessUnit.Items
                         .Cast<object>()
@@ -1353,31 +1357,44 @@ private void DeleteSelectedAssignments()
                     }));
                 }
             }
+            private void SetBusinessUnitForUser(UserInfo user)
+            {
+                if (user == null || user.BusinessUnitId == Guid.Empty) return;
+
+                var buItem = _cbBusinessUnit.Items
+                    .Cast<object>()
+                    .OfType<ComboItem>()
+                    .FirstOrDefault(x => x.Id == user.BusinessUnitId);
+
+                if (buItem == null)
+                {
+                    buItem = new ComboItem(
+                        user.BusinessUnitId,
+                        string.IsNullOrWhiteSpace(user.BusinessUnitName) ? "<Unknown BU>" : user.BusinessUnitName);
+                    _cbBusinessUnit.Items.Add(buItem);
+                }
+
+                _cbBusinessUnit.SelectedItem = buItem;
+            }
 
             private void CbUser_SelectedIndexChanged(object sender, EventArgs e)
             {
-                if (_enableAcrossBuEnabled) return;
-
                 var userItem = _cbUser.SelectedItem as ComboItem;
                 if (userItem == null || userItem.Id == Guid.Empty) return;
 
                 var user = _users.FirstOrDefault(u => u.UserId == userItem.Id);
-                if (user == null || user.BusinessUnitId == Guid.Empty) return;
-
-                _cbBusinessUnit.Items.Clear();
-                _cbBusinessUnit.Items.Add(new ComboItem(user.BusinessUnitId, user.BusinessUnitName ?? ""));
-                _cbBusinessUnit.SelectedIndex = 0;
+                SetBusinessUnitForUser(user);
             }
 
             private void AddClicked()
             {
-                var userItem = _cbUser.SelectedItem as ComboItem;
-                var buItem = _cbBusinessUnit.SelectedItem as ComboItem;
-                var roleItem = _cbRole.SelectedItem as ComboItem;
-
                 TrySelectByText(_cbUser);
                 TrySelectByText(_cbBusinessUnit);
                 TrySelectByText(_cbRole);
+
+                var userItem = _cbUser.SelectedItem as ComboItem;
+                var buItem = _cbBusinessUnit.SelectedItem as ComboItem;
+                var roleItem = _cbRole.SelectedItem as ComboItem;
 
                 // Required validation message
                 if (userItem == null || userItem.Id == Guid.Empty ||

@@ -79,9 +79,13 @@
 			<item>Added the Privilege Discovery Functionality</item>
 		</added>
 	</release>
-	<release version="5.0.2.2" date="2026-04-20">
+	<release version="5.0.2.3" date="2026-04-20">
 		<added>
 			<item>Added the Privilege Discovery Functionality</item>
+		</added>
+	</release>
+	<release version="5.0.2.4" date="2026-04-26">
+		<added>Bug Fix Adding a User Role</item>
 		</added>
 	</release>
 </changelog>
