@@ -145,6 +145,8 @@ namespace GM.XrmToolBox.UserRoleMatrix
         {
             "User",
             "Email",
+            "User Enabled",
+            "Is Application User",
             "User Business Unit",
             "Assignment Type",
             "Team",
@@ -3059,6 +3061,8 @@ private void DeleteSelectedAssignments()
 
                 dr["User"] = r.UserFullName ?? "";
                 dr["Email"] = r.UserEmail ?? "";
+                dr["User Enabled"] = ToYesNo(r.UserEnabled);
+                dr["Is Application User"] = ToYesNo(r.IsApplicationUser);
                 dr["User Business Unit"] = r.UserBusinessUnit ?? "";
 
                 dr["Assignment Type"] = r.AssignmentType ?? "";
@@ -3097,6 +3101,8 @@ private void DeleteSelectedAssignments()
             // Display
             dt.Columns.Add("User", typeof(string));
             dt.Columns.Add("Email", typeof(string));
+            dt.Columns.Add("User Enabled", typeof(string));
+            dt.Columns.Add("Is Application User", typeof(string));
             dt.Columns.Add("User Business Unit", typeof(string));
             dt.Columns.Add("Assignment Type", typeof(string)); // Direct / Team / None
             dt.Columns.Add("Team", typeof(string));
@@ -3128,6 +3134,8 @@ private void DeleteSelectedAssignments()
 
             SetColumnVisible("User", !isTeamMode);
             SetColumnVisible("Email", !isTeamMode);
+            SetColumnVisible("User Enabled", !isTeamMode);
+            SetColumnVisible("Is Application User", !isTeamMode);
             SetColumnVisible("User Business Unit", !isTeamMode);
             SetColumnVisible("Assignment Type", !isTeamMode);
 
@@ -3290,6 +3298,8 @@ private void DeleteSelectedAssignments()
                 var searchClause =
                     $"[User] LIKE '%{s}%'" +
                     $" OR [Email] LIKE '%{s}%'" +
+                    $" OR [User Enabled] LIKE '%{s}%'" +
+                    $" OR [Is Application User] LIKE '%{s}%'" +
                     $" OR [User Business Unit] LIKE '%{s}%'" +
                     $" OR [Team] LIKE '%{s}%'" +
                     $" OR [Team Business Unit] LIKE '%{s}%'" +
@@ -3652,7 +3662,7 @@ private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService s
                 {
                     var qe = new QueryExpression("systemuser")
                     {
-                        ColumnSet = new ColumnSet("systemuserid", "fullname", "internalemailaddress", "isdisabled", "businessunitid"),
+                        ColumnSet = new ColumnSet("systemuserid", "fullname", "internalemailaddress", "isdisabled", "applicationid", "businessunitid"),
                         NoLock = true
                     };
 
@@ -3674,7 +3684,8 @@ private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService s
                             Email = e.GetAttributeValue<string>("internalemailaddress"),
                             BusinessUnitId = buRef?.Id ?? Guid.Empty,
                             BusinessUnitName = GetAliasedString(e, "bu", "name"),
-                            IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false
+                            IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false,
+                            IsApplicationUser = e.GetAttributeValue<Guid>("applicationid") != Guid.Empty
                         };
                     }
                 }
@@ -3686,7 +3697,7 @@ private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService s
             {
                 var qe = new QueryExpression("systemuser")
                 {
-                    ColumnSet = new ColumnSet("systemuserid", "fullname", "internalemailaddress", "isdisabled", "businessunitid"),
+                    ColumnSet = new ColumnSet("systemuserid", "fullname", "internalemailaddress", "isdisabled", "applicationid", "businessunitid"),
                     NoLock = true
                 };
 
@@ -3706,7 +3717,8 @@ private static List<RoleInfo> RetrieveRolesByBusinessUnit(IOrganizationService s
                         Email = e.GetAttributeValue<string>("internalemailaddress"),
                         BusinessUnitId = buRef?.Id ?? Guid.Empty,
                         BusinessUnitName = GetAliasedString(e, "bu", "name"),
-                        IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false
+                        IsDisabled = e.GetAttributeValue<bool?>("isdisabled") ?? false,
+                        IsApplicationUser = e.GetAttributeValue<Guid>("applicationid") != Guid.Empty
                     };
                 }
 
@@ -4249,6 +4261,8 @@ private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationServ
 
                         UserFullName = u?.FullName,
                         UserEmail = u?.Email,
+                        UserEnabled = u == null ? (bool?)null : !u.IsDisabled,
+                        IsApplicationUser = u?.IsApplicationUser,
                         UserBusinessUnit = u?.BusinessUnitName,
 
                         AssignmentType = "Direct",
@@ -4283,6 +4297,8 @@ private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationServ
 
                         UserFullName = u?.FullName,
                         UserEmail = u?.Email,
+                        UserEnabled = u == null ? (bool?)null : !u.IsDisabled,
+                        IsApplicationUser = u?.IsApplicationUser,
                         UserBusinessUnit = u?.BusinessUnitName,
 
                         AssignmentType = "Team",
@@ -4313,6 +4329,11 @@ private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationServ
             }
 
             return rows;
+        }
+
+        private static string ToYesNo(bool? value)
+        {
+            return value.HasValue ? (value.Value ? "Yes" : "No") : "";
         }
 
         private static List<MatrixRow> BuildOwnerTeamRows(
@@ -4451,6 +4472,8 @@ private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationServ
 
             public string UserFullName { get; set; }
             public string UserEmail { get; set; }
+            public bool? UserEnabled { get; set; }
+            public bool? IsApplicationUser { get; set; }
             public string UserBusinessUnit { get; set; }
 
             public string AssignmentType { get; set; }
@@ -4473,6 +4496,7 @@ private static List<BusinessUnitInfo> RetrieveAllBusinessUnits(IOrganizationServ
             public Guid BusinessUnitId { get; set; }
             public string BusinessUnitName { get; set; }
             public bool IsDisabled { get; set; }
+            public bool IsApplicationUser { get; set; }
         }
 
         private sealed class BusinessUnitInfo

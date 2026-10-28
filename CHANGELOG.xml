@@ -8,6 +8,13 @@
 		<removed />
 	</unreleased>
 
+	<release version="5.1.0" date="2026-10-28">
+		<added>
+			<item>User Enabled column in the user-role matrix, derived from systemuser.isdisabled.</item>
+			<item>Is Application User column in the user-role matrix, derived from systemuser.applicationid.</item>
+		</added>
+	</release>
+
 	<release version="1.0.0.0" date="2026-01-20">
 		<added>
 			<item>Load users from Dataverse (systemuser)</item>

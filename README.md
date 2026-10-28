@@ -3,7 +3,7 @@
 XrmToolBox plugin for Microsoft Dataverse / Dynamics 365 that lists **users and their security roles**:
 - Direct roles (System User)
 - Roles inherited via **Owner Teams**
-- Includes Business Unit info
+- Includes user status, application-user and Business Unit info
 - Highlights duplicates (same role assigned both Direct + Team)
 - Filters (Business Unit, Team, Assignment Type)
 - Export to CSV / Excel
@@ -18,7 +18,7 @@ XrmToolBox plugin for Microsoft Dataverse / Dynamics 365 that lists **users and 
   - Directly to the user
   - Via Owner Teams the user is member of
 - Grid view with:
-  - User, Email, User BU
+  - User, Email, User Enabled, Is Application User, User BU
   - Assignment Type (Direct / Team)
   - Team, Team BU
   - Role, Role BU
@@ -84,6 +84,9 @@ We use **Semantic Versioning**: `MAJOR.MINOR.PATCH`
 - `PATCH` = bug fix only
 - `MINOR` = backward-compatible new features
 - `MAJOR` = breaking changes
+
+NuGet releases use the three-part Semantic Version (for example, `5.1.0`).
+The .NET assembly uses the equivalent four-part version (`5.1.0.0`).
 
 **Git tags**:
 - `v1.0.0`, `v1.1.0`, ...
