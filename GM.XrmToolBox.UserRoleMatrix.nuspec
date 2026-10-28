@@ -5,7 +5,7 @@
     <id>GM.XrmToolBox.UserRoleMatrix</id>
 
     <!-- Published NuGet version (AssemblyVersion retains its .0 build segment) -->
-    <version>5.1.0</version>
+    <version>5.1.0.1</version>
 
     <title>User Role Matrix</title>
     <authors>Giovanni Manunta</authors>
@@ -20,6 +20,9 @@
     <summary>User and Owner Team role matrix for Dataverse / Dynamics 365, including user status and application-user indicators.</summary>
 
 	<releaseNotes>
+		5.1.0.1
+		- Added User Enabled indicator to the user-role matrix.
+		- Added Is Application User indicator to the user-role matrix.
 		5.1.0
 		- Added User Enabled indicator to the user-role matrix.
 		- Added Is Application User indicator to the user-role matrix.
