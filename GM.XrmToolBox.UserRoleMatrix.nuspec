@@ -5,7 +5,7 @@
     <id>GM.XrmToolBox.UserRoleMatrix</id>
 
     <!-- Published NuGet version (AssemblyVersion retains its .0 build segment) -->
-    <version>5.1.0.1</version>
+    <version>5.1.0.2</version>
 
     <title>User Role Matrix</title>
     <authors>Giovanni Manunta</authors>
