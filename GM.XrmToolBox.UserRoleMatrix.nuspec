@@ -20,6 +20,8 @@
     <summary>User and Owner Team role matrix for Dataverse / Dynamics 365, including user status and application-user indicators.</summary>
 
 	<releaseNotes>
+		5.1.0.2
+		- BugFix on the Excel Export Functionality
 		5.1.0.1
 		- Added User Enabled indicator to the user-role matrix.
 		- Added Is Application User indicator to the user-role matrix.
